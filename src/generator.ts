@@ -384,7 +384,22 @@ async function executeRequest(
     config.data = args.requestBody;
     headers['content-type'] = def.requestBodyContentType;
   }
-  
+
+  // Fallback: LLM may pass body fields as top-level args instead of under "requestBody"
+  if (def.requestBodyContentType && !config.data) {
+    const paramNames = new Set(def.parameters.map(p => p.name));
+    const bodyArgs: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(args)) {
+      if (key !== 'requestBody' && !paramNames.has(key)) {
+        bodyArgs[key] = value;
+      }
+    }
+    if (Object.keys(bodyArgs).length > 0) {
+      config.data = bodyArgs;
+      headers['content-type'] = def.requestBodyContentType;
+    }
+  }
+
   console.error(\`Executing: \${def.method.toUpperCase()} \${config.url}\`);
   
   const response = await axios(config);
