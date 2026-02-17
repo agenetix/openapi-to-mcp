@@ -308,40 +308,42 @@ ${toolDefinitions}
 ]);
 ${promptDefinitions}
 
-// Create MCP server
-const server = new Server(
-  { name: SERVER_NAME, version: SERVER_VERSION },
-  { capabilities: { tools: {}${promptsCapability} } }
-);
+// Factory: creates a new MCP Server instance with all handlers registered.
+// Called per HTTP session (each session needs its own Server+Transport pair).
+export function createServer(): Server {
+  const server = new Server(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    { capabilities: { tools: {}${promptsCapability} } }
+  );
 
-// List tools handler
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  const toolsForClient: Tool[] = Array.from(toolDefinitionMap.values()).map(def => ({
-    name: def.name,
-    description: def.description,
-    inputSchema: def.inputSchema as Tool['inputSchema'],
-  }));
-  return { tools: toolsForClient };
-});
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const toolsForClient: Tool[] = Array.from(toolDefinitionMap.values()).map(def => ({
+      name: def.name,
+      description: def.description,
+      inputSchema: def.inputSchema as Tool['inputSchema'],
+    }));
+    return { tools: toolsForClient };
+  });
 
-// Call tool handler
-server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest): Promise<CallToolResult> => {
-  const { name: toolName, arguments: toolArgs } = request.params;
-  const toolDefinition = toolDefinitionMap.get(toolName);
-  
-  if (!toolDefinition) {
-    return { content: [{ type: "text", text: \`Error: Unknown tool: \${toolName}\` }] };
-  }
-  
-  try {
+  server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest): Promise<CallToolResult> => {
+    const { name: toolName, arguments: toolArgs } = request.params;
+    const toolDefinition = toolDefinitionMap.get(toolName);
+
+    if (!toolDefinition) {
+      return { content: [{ type: "text", text: \`Error: Unknown tool: \${toolName}\` }] };
+    }
+
+    try {
 ${emcyTrace}
-    return await executeRequest(toolDefinition, toolArgs ?? {});
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { content: [{ type: "text", text: \`Error: \${message}\` }] };
-  }
-});
+      return await executeRequest(toolDefinition, toolArgs ?? {});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { content: [{ type: "text", text: \`Error: \${message}\` }] };
+    }
+  });
 ${promptHandlers}
+  return server;
+}
 
 // Execute API request
 async function executeRequest(
@@ -433,13 +435,14 @@ function applySecurityHeaders(headers: Record<string, string>, schemeNames: stri
 async function main() {
   const args = process.argv.slice(2);
   const useHttp = args.includes('--transport=streamable-http');
-  
+
   if (useHttp) {
     const port = parseInt(process.env.PORT || '3000', 10);
-    await setupStreamableHttpServer(server, port);
+    await setupStreamableHttpServer(port);
   } else {
     // Stdio transport for Claude Desktop, etc.
     const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+    const server = createServer();
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error(\`\${SERVER_NAME} running on stdio\`);
@@ -642,8 +645,7 @@ async function validateJwt(token: string): Promise<TokenValidationResult> {
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SERVER_NAME, SERVER_VERSION } from './index.js';
+import { createServer, SERVER_NAME, SERVER_VERSION } from './index.js';
 ${oauthImports}
 const { WebStandardStreamableHTTPServerTransport } = await import(
   "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
@@ -651,7 +653,7 @@ const { WebStandardStreamableHTTPServerTransport } = await import(
 
 const transports: Map<string, InstanceType<typeof WebStandardStreamableHTTPServerTransport>> = new Map();
 
-export async function setupStreamableHttpServer(mcpServer: Server, port = 3000) {
+export async function setupStreamableHttpServer(port = 3000) {
   const app = new Hono();
 
   // CORS configuration for browser/client access
@@ -709,7 +711,8 @@ ${mcpEndpointWithAuth}
         }
       };
 
-      await mcpServer.connect(transport);
+      const sessionServer = createServer();
+      await sessionServer.connect(transport);
       return transport.handleRequest(c.req.raw);
     }
 
