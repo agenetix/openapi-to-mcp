@@ -148,7 +148,7 @@ if (emcy) {
     ? `
     // Wrap with Emcy telemetry if enabled
     if (emcy) {
-      return emcy.trace(toolName, async () => executeRequest(toolDefinition, toolArgs ?? {}));
+      return emcy.trace(toolName, async () => executeRequest(toolDefinition, toolArgs ?? {}, clientToken));
     }
 `
     : "";
@@ -310,7 +310,8 @@ ${promptDefinitions}
 
 // Factory: creates a new MCP Server instance with all handlers registered.
 // Called per HTTP session (each session needs its own Server+Transport pair).
-export function createServer(): Server {
+// getClientToken: optional callback to retrieve the MCP client's bearer token for pass-through to upstream API.
+export function createServer(getClientToken?: () => string | undefined): Server {
   const server = new Server(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {}${promptsCapability} } }
@@ -334,8 +335,9 @@ export function createServer(): Server {
     }
 
     try {
+      const clientToken = getClientToken?.();
 ${emcyTrace}
-      return await executeRequest(toolDefinition, toolArgs ?? {});
+      return await executeRequest(toolDefinition, toolArgs ?? {}, clientToken);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { content: [{ type: "text", text: \`Error: \${message}\` }] };
@@ -348,7 +350,8 @@ ${promptHandlers}
 // Execute API request
 async function executeRequest(
   def: McpToolDefinition,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  clientToken?: string
 ): Promise<CallToolResult> {
   let url = def.pathTemplate;
   const queryParams: Record<string, unknown> = {};
@@ -369,7 +372,7 @@ async function executeRequest(
   }
   
   // Apply security headers for upstream API calls (API key, Bearer token, etc.)
-  applySecurityHeaders(headers, def.securitySchemes);
+  applySecurityHeaders(headers, def.securitySchemes, clientToken);
   
   // Build request config
   const config: AxiosRequestConfig = {
@@ -416,9 +419,18 @@ async function executeRequest(
   };
 }
 
-// Apply security headers for upstream API authentication
-// Note: This is for authenticating to the UPSTREAM API, not for MCP client auth
-function applySecurityHeaders(headers: Record<string, string>, schemeNames: string[]) {
+// Apply security headers for upstream API authentication.
+// When FORWARD_CLIENT_TOKEN=true and a clientToken is provided (from the MCP client's
+// Authorization header), it is forwarded to the upstream API. This enables the
+// "pass-through OAuth" pattern where the end-user's identity flows through to the API.
+// Falls back to static env-var credentials when no client token is available.
+function applySecurityHeaders(headers: Record<string, string>, schemeNames: string[], clientToken?: string) {
+  // Pass-through mode: forward the MCP client's bearer token to the upstream API
+  if (process.env.FORWARD_CLIENT_TOKEN === 'true' && clientToken) {
+    headers['authorization'] = \`Bearer \${clientToken}\`;
+    return;
+  }
+
   for (const schemeName of schemeNames) {
     const scheme = securitySchemes[schemeName] as Record<string, unknown> | undefined;
     if (!scheme) continue;
@@ -431,14 +443,12 @@ function applySecurityHeaders(headers: Record<string, string>, schemeNames: stri
         headers[scheme.name.toLowerCase()] = apiKey;
       }
     } else if (scheme.type === 'http' && scheme.scheme === 'bearer') {
-      const token = process.env[\`BEARER_TOKEN_\${envKey}\`];
+      const token = clientToken || process.env[\`BEARER_TOKEN_\${envKey}\`];
       if (token) {
         headers['authorization'] = \`Bearer \${token}\`;
       }
     } else if (scheme.type === 'oauth2') {
-      // For upstream OAuth APIs, use a pre-configured access token from environment
-      // The MCP server doesn't manage OAuth flows for upstream APIs - it uses static tokens
-      const token = process.env[\`OAUTH_ACCESS_TOKEN_\${envKey}\`] || process.env.UPSTREAM_ACCESS_TOKEN;
+      const token = clientToken || process.env[\`OAUTH_ACCESS_TOKEN_\${envKey}\`] || process.env.UPSTREAM_ACCESS_TOKEN;
       if (token) {
         headers['authorization'] = \`Bearer \${token}\`;
       }
@@ -667,6 +677,7 @@ const { WebStandardStreamableHTTPServerTransport } = await import(
 );
 
 const transports: Map<string, InstanceType<typeof WebStandardStreamableHTTPServerTransport>> = new Map();
+const sessionTokens: Map<string, { current: string }> = new Map();
 
 export async function setupStreamableHttpServer(port = 3000) {
   const app = new Hono();
@@ -702,17 +713,32 @@ ${protectedResourceMetadataEndpoint}${oauthMiddleware}
 ${mcpEndpointWithAuth}
     const sessionId = c.req.header('mcp-session-id');
 
-    // Existing session
+    // Existing session - update token on each request so refreshed tokens propagate
     if (sessionId && transports.has(sessionId)) {
+      const tokenRef = sessionTokens.get(sessionId);
+      if (tokenRef) {
+        const authHeader = c.req.header('authorization');
+        if (authHeader?.startsWith('Bearer ')) {
+          tokenRef.current = authHeader.substring(7);
+        }
+      }
       return transports.get(sessionId)!.handleRequest(c.req.raw);
     }
 
     // New session - create transport
     if (!sessionId) {
+      // Capture the client's bearer token for pass-through to upstream APIs
+      const sessionTokenRef = { current: '' };
+      const authHeader = c.req.header('authorization');
+      if (authHeader?.startsWith('Bearer ')) {
+        sessionTokenRef.current = authHeader.substring(7);
+      }
+
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
         onsessioninitialized: (newSessionId: string) => {
           transports.set(newSessionId, transport);
+          sessionTokens.set(newSessionId, sessionTokenRef);
           console.error(\`New MCP session: \${newSessionId}\`);
         }
       });
@@ -722,11 +748,12 @@ ${mcpEndpointWithAuth}
         const sid = transport.sessionId;
         if (sid) {
           transports.delete(sid);
+          sessionTokens.delete(sid);
           console.error(\`Session closed: \${sid}\`);
         }
       };
 
-      const sessionServer = createServer();
+      const sessionServer = createServer(() => sessionTokenRef.current || undefined);
       await sessionServer.connect(transport);
       return transport.handleRequest(c.req.raw);
     }
@@ -789,6 +816,10 @@ function generateEnvExample(
     "",
     "# Server Port (for HTTP transport)",
     "PORT=3000",
+    "",
+    "# Token Pass-Through: forward the MCP client's bearer token to the upstream API",
+    "# Enable this for OAuth pass-through flows where the end-user's identity should reach the API",
+    "# FORWARD_CLIENT_TOKEN=true",
   ];
 
   // MCP OAuth configuration - for client authentication to this MCP server
