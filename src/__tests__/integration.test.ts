@@ -118,16 +118,16 @@ describe('End-to-end generation', () => {
     
     expect(tools.length).toBe(7);
     
-    const getOrders = tools.find(t => t.name === 'GetOrders');
+    const getOrders = tools.find(t => t.name === 'get_orders');
     expect(getOrders).toBeDefined();
     expect(getOrders?.httpMethod).toBe('get');
     expect(getOrders?.pathTemplate).toBe('/Orders');
     
-    const postOrders = tools.find(t => t.name === 'PostOrders');
+    const postOrders = tools.find(t => t.name === 'post_orders');
     expect(postOrders).toBeDefined();
     expect(postOrders?.requestBodyContentType).toBe('application/json');
     
-    const getOrderById = tools.find(t => t.name === 'GetOrdersById');
+    const getOrderById = tools.find(t => t.name === 'get_orders_by_id');
     expect(getOrderById).toBeDefined();
     expect(getOrderById?.parameters).toHaveLength(1);
     expect(getOrderById?.parameters[0].name).toBe('id');
@@ -146,13 +146,13 @@ describe('End-to-end generation', () => {
     const serverCode = files['src/index.ts'];
     
     // Verify all tools are in the generated code
-    expect(serverCode).toContain('["GetOrders"');
-    expect(serverCode).toContain('["PostOrders"');
-    expect(serverCode).toContain('["GetOrdersById"');
-    expect(serverCode).toContain('["DeleteOrdersById"');
-    expect(serverCode).toContain('["GetProducts"');
-    expect(serverCode).toContain('["PostProducts"');
-    expect(serverCode).toContain('["GetProductsById"');
+    expect(serverCode).toContain('["get_orders"');
+    expect(serverCode).toContain('["post_orders"');
+    expect(serverCode).toContain('["get_orders_by_id"');
+    expect(serverCode).toContain('["delete_orders_by_id"');
+    expect(serverCode).toContain('["get_products"');
+    expect(serverCode).toContain('["post_products"');
+    expect(serverCode).toContain('["get_products_by_id"');
     
     // Verify the toolDefinitionMap is not empty
     expect(serverCode).not.toMatch(/const toolDefinitionMap.*=.*new Map\(\[\s*\]\)/);
@@ -164,7 +164,7 @@ describe('End-to-end generation', () => {
     const tools = mapToMcpTools(parsed.endpoints, enabledPaths);
     
     expect(tools.length).toBe(2);
-    expect(tools.map(t => t.name)).toEqual(['GetOrders', 'PostOrders']);
+    expect(tools.map(t => t.name)).toEqual(['get_orders', 'post_orders']);
   });
 });
 
@@ -199,4 +199,3 @@ describe('operationId consistency', () => {
     }
   });
 });
-

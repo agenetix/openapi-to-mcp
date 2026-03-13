@@ -122,7 +122,7 @@ export interface GeneratorOptions {
   name: string;
   version?: string;
   baseUrl: string;
-  enabledEndpoints?: Set<string>;  // Optional: filter to only these operationIds
+  enabledEndpoints?: Set<string>;  // Optional: filter to only these canonical tool keys
   emcyEnabled?: boolean;
   /**
    * For local development: path to local @emcy/sdk package.
@@ -162,4 +162,3 @@ export interface GeneratorOptions {
 export interface GeneratedFiles {
   [path: string]: string;
 }
-

@@ -24,7 +24,7 @@ describe('mapToMcpTools', () => {
 
     expect(tools).toHaveLength(1);
     expect(tools[0]).toEqual({
-      name: 'getUsers',
+      name: 'get_users',
       description: 'Get all users',
       inputSchema: { type: 'object', properties: {} },
       httpMethod: 'get',
@@ -205,7 +205,7 @@ describe('mapToMcpTools', () => {
     const tools = mapToMcpTools(endpoints);
 
     expect(tools).toHaveLength(3);
-    expect(tools.map(t => t.name)).toEqual(['getUsers', 'createUser', 'getUser']);
+    expect(tools.map(t => t.name)).toEqual(['get_users', 'post_users', 'get_users_by_id']);
   });
 
   it('should filter by enabled paths when provided', () => {
@@ -232,7 +232,7 @@ describe('mapToMcpTools', () => {
     const tools = mapToMcpTools(endpoints, enabledPaths);
 
     expect(tools).toHaveLength(1);
-    expect(tools[0].name).toBe('getUsers');
+    expect(tools[0].name).toBe('get_users');
   });
 
   it('should preserve security schemes', () => {
@@ -281,4 +281,3 @@ describe('getAllEndpointKeys', () => {
     expect(keys).toEqual(['GET:/users', 'POST:/users', 'DELETE:/users/{id}']);
   });
 });
-
