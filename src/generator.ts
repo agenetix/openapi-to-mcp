@@ -117,6 +117,7 @@ function generateServerEntry(
         : "undefined"
     },
     securitySchemes: ${JSON.stringify(tool.securitySchemes)},
+    requiredScopes: ${JSON.stringify(tool.requiredScopes)},
   }]`;
     })
     .join(",\n");
@@ -161,7 +162,7 @@ if (emcy) {
 // MCP OAuth 2.0 Configuration (RFC 9728 Protected Resource Metadata)
 // This MCP server acts as an OAuth Resource Server - clients must authenticate via the Authorization Server
 const MCP_OAUTH_CONFIG = {
-  // The Authorization Server URL that issues tokens for this MCP server
+  // The Authorization Server issuer/base URL, or a direct metadata URL
   authorizationServerUrl: process.env.OAUTH_AUTHORIZATION_SERVER || ${JSON.stringify(options.oauth2Config?.authorizationServerUrl || "")},
   // The canonical resource identifier for this MCP server (used for audience validation per RFC 8707)
   resourceUrl: process.env.MCP_RESOURCE_URL || \`http://localhost:\${process.env.PORT || 3000}\`,
@@ -293,6 +294,7 @@ interface McpToolDefinition {
   parameters: { name: string; in: string; required: boolean }[];
   requestBodyContentType?: string;
   securitySchemes: string[];
+  requiredScopes: string[];
 }
 
 // Security schemes
@@ -311,7 +313,8 @@ ${promptDefinitions}
 // Factory: creates a new MCP Server instance with all handlers registered.
 // Called per HTTP session (each session needs its own Server+Transport pair).
 // getClientToken: optional callback to retrieve the MCP client's bearer token for pass-through to upstream API.
-export function createServer(getClientToken?: () => string | undefined): Server {
+// getTokenScopes: optional callback to retrieve the validated JWT's scopes for per-tool authorization.
+export function createServer(getClientToken?: () => string | undefined, getTokenScopes?: () => string[]): Server {
   const server = new Server(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {}${promptsCapability} } }
@@ -336,6 +339,18 @@ export function createServer(getClientToken?: () => string | undefined): Server 
 
     try {
       const clientToken = getClientToken?.();
+
+      // Per-tool scope validation: check JWT scopes against tool's required scopes
+      if (toolDefinition.requiredScopes.length > 0 && getTokenScopes) {
+        const grantedScopes = getTokenScopes();
+        const missingScopes = toolDefinition.requiredScopes.filter(s => !grantedScopes.includes(s));
+        if (missingScopes.length > 0) {
+          return {
+            content: [{ type: "text", text: \`Error: Insufficient scope. Missing: \${missingScopes.join(', ')}. Required: \${toolDefinition.requiredScopes.join(', ')}\` }],
+            isError: true
+          };
+        }
+      }
 ${emcyTrace}
       return await executeRequest(toolDefinition, toolArgs ?? {}, clientToken);
     } catch (error) {
@@ -500,6 +515,57 @@ interface JwksCacheEntry {
   expiresAt: number;
 }
 let jwksCache: JwksCacheEntry | null = null;
+let authServerMetadataCache: { metadata: { issuer?: string; jwks_uri?: string }; expiresAt: number } | null = null;
+
+function isAuthorizationServerMetadataUrl(url: string): boolean {
+  return url.includes('/.well-known/oauth-authorization-server');
+}
+
+function ensureTrailingSlash(url: string): string {
+  return url.endsWith('/') ? url : \`\${url}/\`;
+}
+
+function normalizeAuthorizationServerIdentifier(url: string): string {
+  const configuredUrl = url.trim();
+  if (isAuthorizationServerMetadataUrl(configuredUrl)) {
+    return configuredUrl.replace(/\/\.well-known\/oauth-authorization-server\/?$/, '');
+  }
+
+  return configuredUrl.replace(/\/$/, '');
+}
+
+function getAuthorizationServerMetadataUrl(): string {
+  if (isAuthorizationServerMetadataUrl(MCP_OAUTH_CONFIG.authorizationServerUrl)) {
+    return MCP_OAUTH_CONFIG.authorizationServerUrl;
+  }
+
+  return new URL(
+    '.well-known/oauth-authorization-server',
+    ensureTrailingSlash(normalizeAuthorizationServerIdentifier(MCP_OAUTH_CONFIG.authorizationServerUrl)),
+  ).toString();
+}
+
+async function getAuthorizationServerMetadata(): Promise<{ issuer?: string; jwks_uri?: string }> {
+  const now = Date.now();
+
+  if (authServerMetadataCache && authServerMetadataCache.expiresAt > now) {
+    return authServerMetadataCache.metadata;
+  }
+
+  const metadataUrl = getAuthorizationServerMetadataUrl();
+
+  const response = await fetch(metadataUrl);
+  if (!response.ok) {
+    throw new Error(\`Failed to fetch authorization server metadata from \${metadataUrl}\`);
+  }
+
+  const metadata = await response.json();
+  authServerMetadataCache = {
+    metadata,
+    expiresAt: now + (MCP_OAUTH_CONFIG.jwksCacheTtlSeconds * 1000),
+  };
+  return metadata;
+}
 
 async function getJwks(): Promise<jose.JWTVerifyGetKey> {
   const now = Date.now();
@@ -509,8 +575,14 @@ async function getJwks(): Promise<jose.JWTVerifyGetKey> {
     return jwksCache.jwks;
   }
 
-  // Fetch fresh JWKS from Authorization Server
-  const jwksUrl = new URL(\`\${MCP_OAUTH_CONFIG.authorizationServerUrl}/.well-known/jwks.json\`);
+  const metadata = await getAuthorizationServerMetadata();
+  const jwksUrl = new URL(
+    metadata.jwks_uri ||
+      new URL(
+        '.well-known/jwks.json',
+        ensureTrailingSlash(metadata.issuer || normalizeAuthorizationServerIdentifier(MCP_OAUTH_CONFIG.authorizationServerUrl)),
+      ).toString(),
+  );
   const jwks = jose.createRemoteJWKSet(jwksUrl);
 
   // Cache the JWKS
@@ -532,10 +604,12 @@ interface TokenValidationResult {
 
 async function validateJwt(token: string): Promise<TokenValidationResult> {
   try {
+    const metadata = await getAuthorizationServerMetadata();
     const jwks = await getJwks();
+    const trustedIssuer = metadata.issuer || normalizeAuthorizationServerIdentifier(MCP_OAUTH_CONFIG.authorizationServerUrl);
 
     const { payload } = await jose.jwtVerify(token, jwks, {
-      issuer: MCP_OAUTH_CONFIG.authorizationServerUrl,
+      issuer: trustedIssuer,
       audience: MCP_OAUTH_CONFIG.resourceUrl,
     });
 
@@ -571,13 +645,22 @@ async function validateJwt(token: string): Promise<TokenValidationResult> {
   const protectedResourceMetadataEndpoint = hasOAuth ? `
   // OAuth 2.0 Protected Resource Metadata (RFC 9728)
   // This endpoint tells MCP clients where to get tokens
-  app.get('/.well-known/oauth-protected-resource', (c) => {
-    const resourceUrl = MCP_OAUTH_CONFIG.resourceUrl || \`\${c.req.header('x-forwarded-proto') || 'http'}://\${c.req.header('host')}\`;
+  app.get('/.well-known/oauth-protected-resource', async (c) => {
+    const resourceUrl = MCP_OAUTH_CONFIG.resourceUrl;
+    let authorizationServer = normalizeAuthorizationServerIdentifier(MCP_OAUTH_CONFIG.authorizationServerUrl);
+
+    try {
+      const metadata = await getAuthorizationServerMetadata();
+      authorizationServer = metadata.issuer || authorizationServer;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error(\`Failed to resolve authorization server issuer for protected-resource metadata: \${message}\`);
+    }
 
     return c.json({
       resource: resourceUrl,
       authorization_servers: [
-        { issuer: MCP_OAUTH_CONFIG.authorizationServerUrl }
+        authorizationServer
       ],
       scopes_supported: MCP_OAUTH_CONFIG.scopesSupported,
       bearer_methods_supported: ['header'],
@@ -596,18 +679,23 @@ async function validateJwt(token: string): Promise<TokenValidationResult> {
     }
 
     const authHeader = c.req.header('authorization');
-    const resourceMetadataUrl = \`\${c.req.header('x-forwarded-proto') || 'http'}://\${c.req.header('host')}/.well-known/oauth-protected-resource\`;
+    const resourceMetadataUrl = \`\${MCP_OAUTH_CONFIG.resourceUrl}/.well-known/oauth-protected-resource\`;
+
+    const scopeValue = MCP_OAUTH_CONFIG.scopesSupported.length > 0
+      ? MCP_OAUTH_CONFIG.scopesSupported.join(' ')
+      : '';
+    const scopeParam = scopeValue ? \`, scope="\${scopeValue}"\` : '';
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      // Return 401 with WWW-Authenticate header per MCP OAuth spec
+      // Return 401 with WWW-Authenticate header per RFC 6750 Section 3
       return c.json(
         {
-          error: 'unauthorized',
+          error: 'invalid_request',
           error_description: 'Bearer token required'
         },
         401,
         {
-          'WWW-Authenticate': \`Bearer resource_metadata="\${resourceMetadataUrl}"\`
+          'WWW-Authenticate': \`Bearer resource_metadata="\${resourceMetadataUrl}"\${scopeParam}\`
         }
       );
     }
@@ -622,7 +710,7 @@ async function validateJwt(token: string): Promise<TokenValidationResult> {
         },
         401,
         {
-          'WWW-Authenticate': \`Bearer resource_metadata="\${resourceMetadataUrl}", error="invalid_token"\`
+          'WWW-Authenticate': \`Bearer resource_metadata="\${resourceMetadataUrl}", error="invalid_token"\${scopeParam}\`
         }
       );
     }
@@ -639,14 +727,18 @@ async function validateJwt(token: string): Promise<TokenValidationResult> {
         },
         401,
         {
-          'WWW-Authenticate': \`Bearer resource_metadata="\${resourceMetadataUrl}", error="\${validationResult.error}"\`
+          'WWW-Authenticate': \`Bearer resource_metadata="\${resourceMetadataUrl}", error="\${validationResult.error}"\${scopeParam}\`
         }
       );
     }
 
-    // Token is valid - log and proceed
+    // Token is valid - extract scopes and store for per-tool authorization
     const sub = validationResult.payload?.sub || 'unknown';
-    console.error(\`Request authenticated: sub=\${sub}, token=\${token.substring(0, 20)}...\`);
+    const tokenScopes: string[] = typeof validationResult.payload?.scope === 'string'
+      ? validationResult.payload.scope.split(' ').filter(Boolean)
+      : [];
+    c.set('tokenScopes', tokenScopes);
+    console.error(\`Request authenticated: sub=\${sub}, scopes=[\${tokenScopes.join(', ')}], token=\${token.substring(0, 20)}...\`);
     return next();
   };
 ` : "";
@@ -678,8 +770,18 @@ const { WebStandardStreamableHTTPServerTransport } = await import(
 
 const transports: Map<string, InstanceType<typeof WebStandardStreamableHTTPServerTransport>> = new Map();
 const sessionTokens: Map<string, { current: string }> = new Map();
+const sessionScopes: Map<string, { current: string[] }> = new Map();
 
-export async function setupStreamableHttpServer(port = 3000) {
+export async function setupStreamableHttpServer(port = 3000) {${hasOAuth ? `
+  // Validate MCP_RESOURCE_URL is set when OAuth is enabled — audience validation
+  // requires a stable canonical URL, not a value derived from request headers.
+  if (MCP_OAUTH_CONFIG.requireAuth && !process.env.MCP_RESOURCE_URL) {
+    console.error('\\n⚠  ERROR: MCP_RESOURCE_URL environment variable is required when OAuth is enabled.');
+    console.error('   This URL is the canonical resource identifier for audience validation (RFC 8707).');
+    console.error('   Set it to the public URL of this MCP server, e.g.: https://mcp.example.com');
+    console.error('   Falling back to request-derived URLs is unsafe — tokens may fail audience checks.\\n');
+    process.exit(1);
+  }` : ''}
   const app = new Hono();
 
   // CORS configuration for browser/client access
@@ -713,7 +815,7 @@ ${protectedResourceMetadataEndpoint}${oauthMiddleware}
 ${mcpEndpointWithAuth}
     const sessionId = c.req.header('mcp-session-id');
 
-    // Existing session - update token on each request so refreshed tokens propagate
+    // Existing session - update token and scopes on each request so refreshed tokens propagate
     if (sessionId && transports.has(sessionId)) {
       const tokenRef = sessionTokens.get(sessionId);
       if (tokenRef) {
@@ -722,6 +824,10 @@ ${mcpEndpointWithAuth}
           tokenRef.current = authHeader.substring(7);
         }
       }
+      const scopeRef = sessionScopes.get(sessionId);
+      if (scopeRef) {
+        scopeRef.current = c.get('tokenScopes') || [];
+      }
       return transports.get(sessionId)!.handleRequest(c.req.raw);
     }
 
@@ -729,6 +835,7 @@ ${mcpEndpointWithAuth}
     if (!sessionId) {
       // Capture the client's bearer token for pass-through to upstream APIs
       const sessionTokenRef = { current: '' };
+      const sessionScopeRef = { current: (c.get('tokenScopes') || []) as string[] };
       const authHeader = c.req.header('authorization');
       if (authHeader?.startsWith('Bearer ')) {
         sessionTokenRef.current = authHeader.substring(7);
@@ -739,6 +846,7 @@ ${mcpEndpointWithAuth}
         onsessioninitialized: (newSessionId: string) => {
           transports.set(newSessionId, transport);
           sessionTokens.set(newSessionId, sessionTokenRef);
+          sessionScopes.set(newSessionId, sessionScopeRef);
           console.error(\`New MCP session: \${newSessionId}\`);
         }
       });
@@ -749,11 +857,12 @@ ${mcpEndpointWithAuth}
         if (sid) {
           transports.delete(sid);
           sessionTokens.delete(sid);
+          sessionScopes.delete(sid);
           console.error(\`Session closed: \${sid}\`);
         }
       };
 
-      const sessionServer = createServer(() => sessionTokenRef.current || undefined);
+      const sessionServer = createServer(() => sessionTokenRef.current || undefined, () => sessionScopeRef.current);
       await sessionServer.connect(transport);
       return transport.handleRequest(c.req.raw);
     }
@@ -826,6 +935,7 @@ function generateEnvExample(
   if (options.oauth2Config?.authorizationServerUrl) {
     lines.push("", "# MCP OAuth 2.0 Configuration (RFC 9728)");
     lines.push("# This MCP server acts as an OAuth Resource Server");
+    lines.push("# Set this to the auth server issuer/base URL or to /.well-known/oauth-authorization-server");
     lines.push(`OAUTH_AUTHORIZATION_SERVER=${options.oauth2Config.authorizationServerUrl}`);
     lines.push("# The public URL of this MCP server (REQUIRED for audience validation per RFC 8707)");
     lines.push("MCP_RESOURCE_URL=https://your-mcp-server.example.com");

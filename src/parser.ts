@@ -107,9 +107,15 @@ function extractEndpoint(
   
   // Extract security requirements: operation-level overrides global
   const securitySchemes: string[] = [];
+  const requiredScopes: string[] = [];
   const security = operation.security ?? globalSecurity ?? [];
   for (const req of security) {
-    securitySchemes.push(...Object.keys(req));
+    for (const [schemeName, scopes] of Object.entries(req)) {
+      securitySchemes.push(schemeName);
+      if (Array.isArray(scopes)) {
+        requiredScopes.push(...scopes);
+      }
+    }
   }
   
   // Generate operationId if not present
@@ -124,6 +130,7 @@ function extractEndpoint(
     parameters,
     requestBody,
     securitySchemes,
+    requiredScopes: [...new Set(requiredScopes)],
     tags: operation.tags || [],
   };
 }

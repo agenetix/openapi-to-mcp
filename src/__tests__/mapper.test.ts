@@ -16,6 +16,7 @@ describe('mapToMcpTools', () => {
         summary: 'Get all users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -32,6 +33,7 @@ describe('mapToMcpTools', () => {
       parameters: [],
       requestBodyContentType: undefined,
       securitySchemes: [],
+      requiredScopes: [],
     });
   });
 
@@ -51,6 +53,7 @@ describe('mapToMcpTools', () => {
           },
         ],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -92,6 +95,7 @@ describe('mapToMcpTools', () => {
           },
         ],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -127,6 +131,7 @@ describe('mapToMcpTools', () => {
           },
         },
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -148,6 +153,7 @@ describe('mapToMcpTools', () => {
         description: 'Retrieves a single user by their unique identifier.',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -165,6 +171,7 @@ describe('mapToMcpTools', () => {
         path: '/users/{id}',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -182,6 +189,7 @@ describe('mapToMcpTools', () => {
         path: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
       {
@@ -190,6 +198,7 @@ describe('mapToMcpTools', () => {
         path: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
       {
@@ -198,6 +207,7 @@ describe('mapToMcpTools', () => {
         path: '/users/{id}',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -216,6 +226,7 @@ describe('mapToMcpTools', () => {
         path: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
       {
@@ -224,6 +235,7 @@ describe('mapToMcpTools', () => {
         path: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -243,6 +255,7 @@ describe('mapToMcpTools', () => {
         path: '/secure',
         parameters: [],
         securitySchemes: ['bearerAuth', 'apiKey'],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -261,6 +274,7 @@ describe('getEndpointKey', () => {
       path: '/users',
       parameters: [],
       securitySchemes: [],
+      requiredScopes: [],
       tags: [],
     };
 
@@ -271,9 +285,9 @@ describe('getEndpointKey', () => {
 describe('getAllEndpointKeys', () => {
   it('should return all endpoint keys', () => {
     const endpoints: OpenAPIEndpoint[] = [
-      { operationId: 'a', method: 'GET', path: '/users', parameters: [], securitySchemes: [], tags: [] },
-      { operationId: 'b', method: 'POST', path: '/users', parameters: [], securitySchemes: [], tags: [] },
-      { operationId: 'c', method: 'DELETE', path: '/users/{id}', parameters: [], securitySchemes: [], tags: [] },
+      { operationId: 'a', method: 'GET', path: '/users', parameters: [], securitySchemes: [], requiredScopes: [], tags: [] },
+      { operationId: 'b', method: 'POST', path: '/users', parameters: [], securitySchemes: [], requiredScopes: [], tags: [] },
+      { operationId: 'c', method: 'DELETE', path: '/users/{id}', parameters: [], securitySchemes: [], requiredScopes: [], tags: [] },
     ];
 
     const keys = getAllEndpointKeys(endpoints);

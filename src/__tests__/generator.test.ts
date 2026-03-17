@@ -68,6 +68,7 @@ describe('generateMcpServer', () => {
         pathTemplate: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
       },
       {
         name: 'createUser',
@@ -82,6 +83,7 @@ describe('generateMcpServer', () => {
         parameters: [],
         requestBodyContentType: 'application/json',
         securitySchemes: [],
+        requiredScopes: [],
       },
     ];
 
@@ -149,6 +151,7 @@ describe('generateMcpServer', () => {
         pathTemplate: '/secure',
         parameters: [],
         securitySchemes: ['apiKey', 'bearerAuth'],
+        requiredScopes: [],
       },
     ];
 
@@ -174,6 +177,7 @@ describe('generateMcpServer', () => {
         pathTemplate: '/users/{id}',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
         securitySchemes: [],
+        requiredScopes: [],
       },
     ];
 
@@ -210,6 +214,7 @@ describe('generateMcpServer', () => {
         pathTemplate: '/secure',
         parameters: [],
         securitySchemes: ['apiKeyAuth'],
+        requiredScopes: [],
       },
     ];
 
@@ -246,6 +251,7 @@ describe('generator produces working TypeScript', () => {
         ],
         requestBodyContentType: 'application/json',
         securitySchemes: ['auth'],
+        requiredScopes: [],
       },
     ];
 

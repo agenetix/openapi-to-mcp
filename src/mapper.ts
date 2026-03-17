@@ -45,6 +45,7 @@ function mapEndpointToTool(endpoint: OpenAPIEndpoint): McpToolDefinition {
     parameters: endpoint.parameters,
     requestBodyContentType: endpoint.requestBody?.contentType,
     securitySchemes: endpoint.securitySchemes,
+    requiredScopes: endpoint.requiredScopes,
   };
 }
 

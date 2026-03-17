@@ -11,6 +11,8 @@ export interface OpenAPIEndpoint {
   parameters: EndpointParameter[];
   requestBody?: RequestBodySchema;
   securitySchemes: string[];
+  /** OAuth scopes required by this endpoint (extracted from OpenAPI security requirements) */
+  requiredScopes: string[];
   tags: string[];
 }
 
@@ -53,6 +55,8 @@ export interface McpToolDefinition {
   parameters: EndpointParameter[];
   requestBodyContentType?: string;
   securitySchemes: string[];
+  /** OAuth scopes required to invoke this tool */
+  requiredScopes: string[];
 }
 
 export interface ParsedOpenAPI {
@@ -136,7 +140,10 @@ export interface GeneratorOptions {
    * Clients (like ChatGPT) authenticate via the specified Authorization Server.
    */
   oauth2Config?: {
-    /** The Authorization Server URL that issues tokens for this MCP server */
+    /**
+     * The Authorization Server issuer/base URL, or a direct
+     * /.well-known/oauth-authorization-server metadata URL.
+     */
     authorizationServerUrl?: string;
     /** Scopes supported by this MCP server */
     scopes?: string[];
