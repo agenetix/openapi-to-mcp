@@ -163,6 +163,34 @@ describe('generateMcpServer', () => {
     expect(serverCode).toContain('applySecurityHeaders');
   });
 
+  it('generates RFC 9728 metadata and audience validation for OAuth Todo-style servers', () => {
+    const files = generateMcpServer([], {
+      ...baseOptions,
+      oauth2Config: {
+        authorizationServerUrl: 'https://auth.todo.example.com',
+        scopes: ['openid', 'todos.read'],
+      },
+    });
+
+    const serverCode = files['src/index.ts'];
+    const transportCode = files['src/transport.ts'];
+    const envExample = files['.env.example'];
+
+    expect(transportCode).toContain("/.well-known/oauth-protected-resource");
+    expect(transportCode).toContain('resource_metadata=');
+    expect(transportCode).toContain('audience: getMcpOauthConfig().resourceUrl');
+    expect(transportCode).not.toContain('replace(//');
+    expect(transportCode).toContain('oauth-authorization-server\\/?$');
+    expect(transportCode).toContain("declare module 'hono'");
+    expect(transportCode).toContain("tokenScopes: string[];");
+    expect(transportCode).toContain('await response.json() as AuthorizationServerMetadata');
+    expect(transportCode).toContain('Token audience does not match this resource server');
+    expect(serverCode).toContain('setupStreamableHttpServer(port, MCP_OAUTH_CONFIG)');
+    expect(serverCode).toContain('FORWARD_CLIENT_TOKEN');
+    expect(envExample).toContain('MCP_RESOURCE_URL=');
+    expect(envExample).toContain('FORWARD_CLIENT_TOKEN=true');
+  });
+
   it('should generate proper path parameter handling', () => {
     const tools: McpToolDefinition[] = [
       {

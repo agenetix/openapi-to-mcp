@@ -27,6 +27,27 @@ npx @emcy/openapi-to-mcp generate --url ./openapi.yaml --name my-api
 npx @emcy/openapi-to-mcp generate --url ./api.json --name my-api --emcy
 ```
 
+## Todo OAuth Sample
+
+The canonical end-to-end OAuth sample for Emcy is the SqlOS Todo app:
+
+1. Generate the MCP server from the Todo OpenAPI spec.
+2. Set `OAUTH_AUTHORIZATION_SERVER` to the SqlOS auth server issuer or metadata URL.
+3. Set `MCP_RESOURCE_URL` to the public HTTPS URL of the generated MCP server.
+4. Set `FORWARD_CLIENT_TOKEN=true` so user bearer tokens flow through to the upstream Todo API.
+5. Deploy the generated server and verify:
+   - `/.well-known/oauth-protected-resource` returns the Todo resource metadata
+   - `WWW-Authenticate` includes `resource_metadata="..."`
+   - tokens with the wrong `aud` are rejected
+
+Example environment:
+
+```bash
+OAUTH_AUTHORIZATION_SERVER=https://auth.todo.example.com
+MCP_RESOURCE_URL=https://todo-mcp.example.com
+FORWARD_CLIENT_TOKEN=true
+```
+
 ## Installation
 
 You can use it directly with `npx` (recommended) or install globally:
@@ -89,6 +110,8 @@ npm run start:http
 # For Claude Desktop/stdio
 npm start
 ```
+
+When OAuth is enabled, always set `MCP_RESOURCE_URL` to the final public URL of the MCP server. The generated server uses that value for RFC 8707 audience validation and for the RFC 9728 protected-resource metadata document.
 
 ### Using with Cursor
 
