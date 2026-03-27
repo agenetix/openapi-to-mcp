@@ -191,6 +191,39 @@ describe('generateMcpServer', () => {
     expect(envExample).toContain('FORWARD_CLIENT_TOKEN=true');
   });
 
+  it('generates hosted-worker runtimes without public OAuth resource-server behavior', () => {
+    const files = generateMcpServer([], {
+      ...baseOptions,
+      hostedWorkerConfig: {
+        enabled: true,
+      },
+      oauth2Config: {
+        authorizationServerUrl: 'https://auth.todo.example.com',
+        scopes: ['openid', 'todos.read'],
+      },
+    });
+
+    const pkg = JSON.parse(files['package.json']);
+    const serverCode = files['src/index.ts'];
+    const transportCode = files['src/transport.ts'];
+    const envExample = files['.env.example'];
+    const readme = files['README.md'];
+
+    expect(pkg.dependencies.jose).toBeUndefined();
+    expect(serverCode).toContain('const HOSTED_WORKER_CONFIG = {');
+    expect(serverCode).toContain("headers['authorization'] = `Bearer ${clientToken}`;");
+    expect(transportCode).toContain("app.use('/mcp', async (c, next) => {");
+    expect(transportCode).toContain('x-emcy-worker-secret');
+    expect(transportCode).toContain('x-emcy-upstream-access-token');
+    expect(transportCode).not.toContain('/.well-known/oauth-protected-resource');
+    expect(transportCode).not.toContain('Bearer token required');
+    expect(envExample).toContain('EMCY_WORKER_SHARED_SECRET=change-me');
+    expect(envExample).not.toContain('FORWARD_CLIENT_TOKEN=true');
+    expect(envExample).not.toContain('OAUTH_AUTHORIZATION_SERVER=');
+    expect(readme).toContain('Hosted Worker Mode');
+    expect(readme).toContain('AI clients should not connect directly to this worker');
+  });
+
   it('should generate proper path parameter handling', () => {
     const tools: McpToolDefinition[] = [
       {
@@ -309,4 +342,3 @@ describe('generator produces working TypeScript', () => {
     expect(openParens).toBe(closeParens);
   });
 });
-

@@ -10,6 +10,14 @@ import type {
   PromptDefinition,
 } from "./types.js";
 
+function isHostedWorkerMode(options: GeneratorOptions): boolean {
+  return options.hostedWorkerConfig?.enabled === true;
+}
+
+function hasPublicOauthMode(options: GeneratorOptions): boolean {
+  return !!options.oauth2Config?.authorizationServerUrl && !isHostedWorkerMode(options);
+}
+
 /**
  * Generate a complete MCP server from tool definitions
  */
@@ -56,7 +64,7 @@ function generatePackageJson(options: GeneratorOptions): string {
               : "^0.1.0",
           }
         : {}),
-      ...(options.oauth2Config?.authorizationServerUrl
+      ...(hasPublicOauthMode(options)
         ? {
             jose: "^5.2.0",
           }
@@ -154,8 +162,9 @@ if (emcy) {
 `
     : "";
 
+  const hasHostedWorker = isHostedWorkerMode(options);
   // MCP OAuth configuration - whether this server requires OAuth authentication from clients
-  const hasMcpOAuth = options.oauth2Config?.authorizationServerUrl;
+  const hasMcpOAuth = hasPublicOauthMode(options);
   const jwksCacheTtl = options.oauth2Config?.jwksCacheTtlSeconds ?? 300;
   const mcpOAuthConfig = hasMcpOAuth
     ? `
@@ -172,6 +181,19 @@ const MCP_OAUTH_CONFIG = {
   requireAuth: process.env.MCP_REQUIRE_AUTH !== 'false',
   // JWKS cache TTL in seconds (default: 300 = 5 minutes)
   jwksCacheTtlSeconds: parseInt(process.env.JWKS_CACHE_TTL_SECONDS || '${jwksCacheTtl}', 10),
+};
+`
+    : "";
+  const hostedWorkerConfig = hasHostedWorker
+    ? `
+// Hosted worker configuration
+// In hosted-worker mode, Emcy owns the public MCP/OAuth boundary and forwards
+// a downstream app token to this runtime for upstream API execution.
+const HOSTED_WORKER_CONFIG = {
+  enabled: true,
+  workerSecretHeader: process.env.EMCY_WORKER_SECRET_HEADER || ${JSON.stringify(options.hostedWorkerConfig?.workerSecretHeader || "x-emcy-worker-secret")},
+  workerSecretEnvVar: process.env.EMCY_WORKER_SECRET_ENV_VAR || ${JSON.stringify(options.hostedWorkerConfig?.workerSecretEnvVar || "EMCY_WORKER_SHARED_SECRET")},
+  upstreamAccessTokenHeader: process.env.EMCY_UPSTREAM_ACCESS_TOKEN_HEADER || ${JSON.stringify(options.hostedWorkerConfig?.upstreamAccessTokenHeader || "x-emcy-upstream-access-token")},
 };
 `
     : "";
@@ -303,7 +325,7 @@ const securitySchemes: Record<string, unknown> = ${JSON.stringify(
     null,
     2
   )};
-${mcpOAuthConfig}${emcyInit}
+${mcpOAuthConfig}${hostedWorkerConfig}${emcyInit}
 // Tool definitions
 const toolDefinitionMap: Map<string, McpToolDefinition> = new Map([
 ${toolDefinitions}
@@ -312,8 +334,10 @@ ${promptDefinitions}
 
 // Factory: creates a new MCP Server instance with all handlers registered.
 // Called per HTTP session (each session needs its own Server+Transport pair).
-// getClientToken: optional callback to retrieve the MCP client's bearer token for pass-through to upstream API.
-// getTokenScopes: optional callback to retrieve the validated JWT's scopes for per-tool authorization.
+// getClientToken: optional callback to retrieve an upstream bearer token for API calls.
+// In hosted-worker mode, Emcy forwards the downstream app token on each request.
+// In standalone mode, this may be the MCP client's token for pass-through flows.
+// getTokenScopes: optional callback to retrieve validated token scopes for per-tool authorization.
 export function createServer(getClientToken?: () => string | undefined, getTokenScopes?: () => string[]): Server {
   const server = new Server(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -435,11 +459,17 @@ async function executeRequest(
 }
 
 // Apply security headers for upstream API authentication.
-// When FORWARD_CLIENT_TOKEN=true and a clientToken is provided (from the MCP client's
-// Authorization header), it is forwarded to the upstream API. This enables the
-// "pass-through OAuth" pattern where the end-user's identity flows through to the API.
+// In hosted-worker mode, Emcy forwards the downstream app token and that token is
+// always used for upstream API calls.
+// In standalone mode, FORWARD_CLIENT_TOKEN can be enabled to pass the MCP client's
+// bearer token through to the upstream API.
 // Falls back to static env-var credentials when no client token is available.
 function applySecurityHeaders(headers: Record<string, string>, schemeNames: string[], clientToken?: string) {
+  if (${hasHostedWorker ? "true" : "false"} && clientToken) {
+    headers['authorization'] = \`Bearer \${clientToken}\`;
+    return;
+  }
+
   // Pass-through mode: forward the MCP client's bearer token to the upstream API
   if (process.env.FORWARD_CLIENT_TOKEN === 'true' && clientToken) {
     headers['authorization'] = \`Bearer \${clientToken}\`;
@@ -478,7 +508,7 @@ async function main() {
 
   if (useHttp) {
     const port = parseInt(process.env.PORT || '3000', 10);
-    await setupStreamableHttpServer(port${hasMcpOAuth ? ", MCP_OAUTH_CONFIG" : ""});
+    await setupStreamableHttpServer(port${hasHostedWorker ? ", HOSTED_WORKER_CONFIG" : hasMcpOAuth ? ", MCP_OAUTH_CONFIG" : ""});
   } else {
     // Stdio transport for Claude Desktop, etc.
     const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
@@ -494,17 +524,12 @@ main().catch(console.error);
 }
 
 function generateTransport(options: GeneratorOptions): string {
-  const hasOAuth = options.oauth2Config?.authorizationServerUrl;
+  const hasHostedWorker = isHostedWorkerMode(options);
+  const hasOAuth = hasPublicOauthMode(options);
 
   // OAuth-specific code blocks
   const oauthImports = hasOAuth ? `
 import * as jose from 'jose';
-
-declare module 'hono' {
-  interface ContextVariableMap {
-    tokenScopes: string[];
-  }
-}
 
 // OAuth runtime config is registered by setupStreamableHttpServer(oauthConfig) from index.ts
 interface McpOauthRuntimeConfig {
@@ -660,6 +685,29 @@ async function validateJwt(token: string): Promise<TokenValidationResult> {
   }
 }
 ` : "";
+  const contextVariableDeclarations = `
+declare module 'hono' {
+  interface ContextVariableMap {
+    tokenScopes: string[];
+  }
+}
+`;
+  const hostedWorkerImports = hasHostedWorker ? `
+interface HostedWorkerRuntimeConfig {
+  enabled: boolean;
+  workerSecretHeader: string;
+  workerSecretEnvVar: string;
+  upstreamAccessTokenHeader: string;
+}
+
+let hostedWorkerRuntimeConfig: HostedWorkerRuntimeConfig | undefined;
+function getHostedWorkerConfig(): HostedWorkerRuntimeConfig {
+  if (!hostedWorkerRuntimeConfig?.enabled) {
+    throw new Error('Hosted worker runtime config was not initialized. Call setupStreamableHttpServer with hostedWorkerConfig.');
+  }
+  return hostedWorkerRuntimeConfig;
+}
+` : "";
 
   const protectedResourceMetadataEndpoint = hasOAuth ? `
   // OAuth 2.0 Protected Resource Metadata (RFC 9728)
@@ -761,6 +809,52 @@ async function validateJwt(token: string): Promise<TokenValidationResult> {
     return next();
   };
 ` : "";
+  const hostedWorkerMiddleware = hasHostedWorker ? `
+  app.use('/mcp', async (c, next) => {
+    const workerConfig = getHostedWorkerConfig();
+    const expectedSecret = process.env[workerConfig.workerSecretEnvVar];
+    if (!expectedSecret) {
+      return c.json({
+        error: 'server_error',
+        error_description: \`Missing worker secret env var: \${workerConfig.workerSecretEnvVar}\`
+      }, 500);
+    }
+
+    const providedSecret = c.req.header(workerConfig.workerSecretHeader);
+    if (providedSecret !== expectedSecret) {
+      return c.json({
+        error: 'unauthorized',
+        error_description: 'Internal worker secret is missing or invalid.'
+      }, 401);
+    }
+
+    return next();
+  });
+` : "";
+  const requestTokenResolver = hasHostedWorker ? `
+function getRequestAccessToken(c: any): string | undefined {
+  const forwarded = c.req.header(getHostedWorkerConfig().upstreamAccessTokenHeader);
+  if (forwarded) {
+    return forwarded;
+  }
+
+  const authHeader = c.req.header('authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+
+  return undefined;
+}
+` : `
+function getRequestAccessToken(c: any): string | undefined {
+  const authHeader = c.req.header('authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+
+  return undefined;
+}
+`;
 
   const mcpEndpointWithAuth = hasOAuth ? `
   // Streamable HTTP Transport (MCP spec 2025-03-26) with OAuth protection
@@ -771,6 +865,15 @@ async function validateJwt(token: string): Promise<TokenValidationResult> {
   const oauthStartupMessage = hasOAuth ? `
     console.error(\`║  OAuth:  Protected Resource Metadata available               ║\`);
     console.error(\`║          \${('http://localhost:' + info.port + '/.well-known/oauth-protected-resource').padEnd(52)} ║\`);` : "";
+  const hostedWorkerStartupMessage = hasHostedWorker ? `
+    console.error(\`║  Mode:   Internal hosted worker                              ║\`);
+    console.error(\`║  Header: \${getHostedWorkerConfig().workerSecretHeader.padEnd(53)} ║\`);` : "";
+  const clientGuidance = hasHostedWorker ? `
+    console.error(\`║  This runtime is intended for Emcy-hosted internal use.      ║\`);
+    console.error(\`║  Do not connect AI clients directly to this worker.          ║\`);` : `
+    console.error(\`║  For AI Clients:                                              ║\`);
+    console.error(\`║    ChatGPT/Cursor URL: http://localhost:\${info.port}/mcp\`.padEnd(64) + \`║\`);
+    console.error(\`║    Claude Desktop: Use stdio transport (npm start)            ║\`);`;
 
   return `/**
  * HTTP Transport for MCP
@@ -782,7 +885,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 import { createServer, SERVER_NAME, SERVER_VERSION } from './index.js';
-${oauthImports}
+${contextVariableDeclarations}${oauthImports}${hostedWorkerImports}
 const { WebStandardStreamableHTTPServerTransport } = await import(
   "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 );
@@ -790,28 +893,30 @@ const { WebStandardStreamableHTTPServerTransport } = await import(
 const transports: Map<string, InstanceType<typeof WebStandardStreamableHTTPServerTransport>> = new Map();
 const sessionTokens: Map<string, { current: string }> = new Map();
 const sessionScopes: Map<string, { current: string[] }> = new Map();
+${requestTokenResolver}
 
-export async function setupStreamableHttpServer(port = 3000${hasOAuth ? ', oauthConfig: McpOauthRuntimeConfig' : ''}) {${hasOAuth ? `
+export async function setupStreamableHttpServer(port = 3000${hasOAuth ? ', oauthConfig?: McpOauthRuntimeConfig' : ''}${hasHostedWorker ? `${hasOAuth ? ', ' : ', '}hostedWorkerConfig?: HostedWorkerRuntimeConfig` : ''}) {${hasOAuth ? `
   mcpOauthRuntimeConfig = oauthConfig;
   // Validate MCP_RESOURCE_URL is set when OAuth is enabled — audience validation
   // requires a stable canonical URL, not a value derived from request headers.
-  if (oauthConfig.requireAuth && !process.env.MCP_RESOURCE_URL) {
+  if (oauthConfig?.requireAuth && !process.env.MCP_RESOURCE_URL) {
     console.error('\\n⚠  ERROR: MCP_RESOURCE_URL environment variable is required when OAuth is enabled.');
     console.error('   This URL is the canonical resource identifier for audience validation (RFC 8707).');
     console.error('   Set it to the public URL of this MCP server, e.g.: https://mcp.example.com');
     console.error('   Falling back to request-derived URLs is unsafe — tokens may fail audience checks.\\n');
     process.exit(1);
-  }` : ''}
+  }` : ''}${hasHostedWorker ? `
+  hostedWorkerRuntimeConfig = hostedWorkerConfig;` : ''}
   const app = new Hono();
 
   // CORS configuration for browser/client access
   app.use('*', cors({
     origin: '*',
     allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Accept', 'Authorization', 'mcp-session-id', 'Last-Event-ID'],
+    allowHeaders: ['Content-Type', 'Accept', 'Authorization', 'mcp-session-id', 'Last-Event-ID', 'x-emcy-worker-secret', 'x-emcy-upstream-access-token'],
     exposeHeaders: ['mcp-session-id', 'WWW-Authenticate'],
   }));
-${protectedResourceMetadataEndpoint}${oauthMiddleware}
+${protectedResourceMetadataEndpoint}${hostedWorkerMiddleware}${oauthMiddleware}
   // Health check endpoint
   app.get('/health', (c) => {
     return c.json({
@@ -828,6 +933,11 @@ ${protectedResourceMetadataEndpoint}${oauthMiddleware}
         oauth: {
           required: getMcpOauthConfig().requireAuth,
           authorization_server: getMcpOauthConfig().authorizationServerUrl
+        }` : ''}${hasHostedWorker ? `,
+        hosted_worker: {
+          enabled: true,
+          worker_secret_header: getHostedWorkerConfig().workerSecretHeader,
+          upstream_access_token_header: getHostedWorkerConfig().upstreamAccessTokenHeader
         }` : ''}
       }
     });
@@ -839,9 +949,9 @@ ${mcpEndpointWithAuth}
     if (sessionId && transports.has(sessionId)) {
       const tokenRef = sessionTokens.get(sessionId);
       if (tokenRef) {
-        const authHeader = c.req.header('authorization');
-        if (authHeader?.startsWith('Bearer ')) {
-          tokenRef.current = authHeader.substring(7);
+        const requestToken = getRequestAccessToken(c);
+        if (requestToken) {
+          tokenRef.current = requestToken;
         }
       }
       const scopeRef = sessionScopes.get(sessionId);
@@ -853,12 +963,12 @@ ${mcpEndpointWithAuth}
 
     // New session - create transport
     if (!sessionId) {
-      // Capture the client's bearer token for pass-through to upstream APIs
+      // Capture the upstream bearer token for API execution.
       const sessionTokenRef = { current: '' };
       const sessionScopeRef = { current: (c.get('tokenScopes') || []) as string[] };
-      const authHeader = c.req.header('authorization');
-      if (authHeader?.startsWith('Bearer ')) {
-        sessionTokenRef.current = authHeader.substring(7);
+      const requestToken = getRequestAccessToken(c);
+      if (requestToken) {
+        sessionTokenRef.current = requestToken;
       }
 
       const transport = new WebStandardStreamableHTTPServerTransport({
@@ -913,11 +1023,9 @@ ${mcpEndpointWithAuth}
     console.error(\`╠═══════════════════════════════════════════════════════════════╣\`);
     console.error(\`║  Endpoints:                                                   ║\`);
     console.error(\`║    MCP:    http://localhost:\${info.port}/mcp\`.padEnd(64) + \`║\`);
-    console.error(\`║    Health: http://localhost:\${info.port}/health\`.padEnd(64) + \`║\`);${oauthStartupMessage}
+    console.error(\`║    Health: http://localhost:\${info.port}/health\`.padEnd(64) + \`║\`);${oauthStartupMessage}${hostedWorkerStartupMessage}
     console.error(\`╠═══════════════════════════════════════════════════════════════╣\`);
-    console.error(\`║  For AI Clients:                                              ║\`);
-    console.error(\`║    ChatGPT/Cursor URL: http://localhost:\${info.port}/mcp\`.padEnd(64) + \`║\`);
-    console.error(\`║    Claude Desktop: Use stdio transport (npm start)            ║\`);
+${clientGuidance}
     console.error(\`╚═══════════════════════════════════════════════════════════════╝\`);
     console.error('');
   });
@@ -932,6 +1040,7 @@ function generateEnvExample(
   securitySchemes: Record<string, SecurityScheme>,
   options: GeneratorOptions
 ): string {
+  const hasHostedWorker = isHostedWorkerMode(options);
   const lines = [
     "# API Configuration",
     `API_BASE_URL=${options.baseUrl}`,
@@ -945,18 +1054,35 @@ function generateEnvExample(
     "",
     "# Server Port (for HTTP transport)",
     "PORT=3000",
-    "",
-    "# Token Pass-Through: forward the MCP client's bearer token to the upstream API",
-    "# Enable this for OAuth pass-through flows where the end-user's identity should reach the API",
-    "# FORWARD_CLIENT_TOKEN=true",
   ];
 
+  if (hasHostedWorker) {
+    lines.push(
+      "",
+      "# Hosted Worker Configuration",
+      "# This runtime is intended to run behind Emcy-hosted MCP auth.",
+      "# Emcy authenticates to the worker with a shared secret and forwards a",
+      "# downstream app access token for each tool execution request.",
+      "EMCY_WORKER_SHARED_SECRET=change-me",
+      "# EMCY_WORKER_SECRET_HEADER=x-emcy-worker-secret",
+      "# EMCY_UPSTREAM_ACCESS_TOKEN_HEADER=x-emcy-upstream-access-token"
+    );
+  } else {
+    lines.push(
+      "",
+      "# Token Pass-Through: forward the MCP client's bearer token to the upstream API",
+      "# Enable this for OAuth pass-through flows where the end-user's identity should reach the API",
+      "# FORWARD_CLIENT_TOKEN=true"
+    );
+  }
+
   // MCP OAuth configuration - for client authentication to this MCP server
-  if (options.oauth2Config?.authorizationServerUrl) {
+  if (hasPublicOauthMode(options)) {
+    const authorizationServerUrl = options.oauth2Config?.authorizationServerUrl || "";
     lines.push("", "# MCP OAuth 2.0 Configuration (RFC 9728)");
     lines.push("# This MCP server acts as an OAuth Resource Server");
     lines.push("# Set this to the auth server issuer/base URL or to /.well-known/oauth-authorization-server");
-    lines.push(`OAUTH_AUTHORIZATION_SERVER=${options.oauth2Config.authorizationServerUrl}`);
+    lines.push(`OAUTH_AUTHORIZATION_SERVER=${authorizationServerUrl}`);
     lines.push("# The public URL of this MCP server (REQUIRED for audience validation per RFC 8707)");
     lines.push("MCP_RESOURCE_URL=https://your-mcp-server.example.com");
     lines.push("# Set to 'false' to disable OAuth authentication (for development only)");
@@ -999,6 +1125,7 @@ function generateEnvExample(
 }
 
 function generateReadme(options: GeneratorOptions): string {
+  const hasHostedWorker = isHostedWorkerMode(options);
   const hasPrompts = options.prompts && options.prompts.length > 0;
   const promptsSection = hasPrompts
     ? `
@@ -1012,6 +1139,44 @@ ${options.prompts!.map((p) => `- **${p.name}**: ${p.description}`).join("\n")}
 Prompts are automatically available to AI clients via the MCP prompts protocol.
 `
     : "";
+
+  if (hasHostedWorker) {
+    return `# ${options.name}
+
+Hosted MCP worker generated from an OpenAPI specification by [Emcy](https://emcy.dev).
+${promptsSection}
+## Hosted Worker Mode
+
+This runtime is designed to run behind Emcy-hosted MCP auth.
+
+- Emcy owns the public MCP URL and OAuth flow
+- Emcy forwards a downstream app access token to this worker
+- AI clients should not connect directly to this worker
+
+## Quick Start
+
+\`\`\`bash
+npm install
+npm run build
+npm run start:http
+\`\`\`
+
+## Configuration
+
+Copy \`.env.example\` to \`.env\` and configure:
+
+- \`API_BASE_URL\`: Base URL of the downstream API (default: ${options.baseUrl})
+- \`PORT\`: Worker port for internal HTTP transport (default: 3000)
+- \`EMCY_WORKER_SHARED_SECRET\`: Shared secret used by Emcy to authenticate to the worker
+
+## Local Validation
+
+1. Start the worker with \`npm run start:http\`
+2. Configure Emcy to use this worker's base URL
+3. Let Emcy host the public MCP/OAuth surface
+4. Verify tool calls succeed through Emcy
+`;
+  }
 
   return `# ${options.name}
 

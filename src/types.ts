@@ -159,6 +159,18 @@ export interface GeneratorOptions {
     jwksCacheTtlSeconds?: number;
   };
   /**
+   * Hosted worker mode for Emcy-hosted MCP servers.
+   * In this mode the generated runtime is an internal execution worker, not the
+   * public MCP OAuth/resource boundary. Emcy forwards a downstream app token on
+   * each request and authenticates to the worker with a shared secret.
+   */
+  hostedWorkerConfig?: {
+    enabled: boolean;
+    workerSecretHeader?: string;
+    workerSecretEnvVar?: string;
+    upstreamAccessTokenHeader?: string;
+  };
+  /**
    * MCP Prompts configuration.
    * Prompts are pre-defined templates that help AI understand context and accomplish specific tasks.
    * These are exposed via the prompts/list and prompts/get MCP endpoints.
