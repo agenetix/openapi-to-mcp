@@ -23,4 +23,7 @@ export type {
   GeneratedFiles,
   EndpointParameter,
   SecurityScheme,
+  RuntimeMode,
+  UpstreamHeaderConfig,
+  HostedWorkerConfig,
 } from './types.js';

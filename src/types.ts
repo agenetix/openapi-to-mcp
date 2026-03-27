@@ -122,6 +122,28 @@ export interface PromptArgument {
   required: boolean;
 }
 
+export type RuntimeMode =
+  | "standalone_no_auth"
+  | "standalone_headers"
+  | "emcy_hosted_worker";
+
+export interface UpstreamHeaderConfig {
+  /** Header name to send to the upstream API on every request. */
+  name: string;
+  /** Environment variable that provides the header value at runtime. */
+  envVar: string;
+  /** Optional prefix prepended to the env var value, e.g. "Bearer". */
+  valuePrefix?: string;
+  /** Optional default value written into the generated .env.example. */
+  defaultValue?: string;
+}
+
+export interface HostedWorkerConfig {
+  workerSecretHeader?: string;
+  workerSecretEnvVar?: string;
+  upstreamAccessTokenHeader?: string;
+}
+
 export interface GeneratorOptions {
   name: string;
   version?: string;
@@ -135,41 +157,24 @@ export interface GeneratorOptions {
    */
   localSdkPath?: string;
   /**
-   * MCP OAuth 2.0 configuration for client authentication.
-   * The MCP server acts as an OAuth Resource Server (RFC 9728).
-   * Clients (like ChatGPT) authenticate via the specified Authorization Server.
+   * Runtime shape for the generated output.
+   * - standalone_no_auth: public MCP server with no upstream auth handling
+   * - standalone_headers: public MCP server that injects static/custom headers for upstream calls
+   * - emcy_hosted_worker: internal worker behind Emcy-hosted MCP auth/runtime
    */
-  oauth2Config?: {
-    /**
-     * The Authorization Server issuer/base URL, or a direct
-     * /.well-known/oauth-authorization-server metadata URL.
-     */
-    authorizationServerUrl?: string;
-    /** Scopes supported by this MCP server */
-    scopes?: string[];
-    /**
-     * The canonical URL of this MCP server (used for audience validation per RFC 8707).
-     * If not set, uses MCP_RESOURCE_URL environment variable at runtime.
-     */
-    resourceUrl?: string;
-    /**
-     * JWKS cache TTL in seconds. Default: 300 (5 minutes).
-     * Set to 0 to disable caching (not recommended for production).
-     */
-    jwksCacheTtlSeconds?: number;
-  };
+  runtimeMode?: RuntimeMode;
+  /**
+   * Static headers applied to every upstream API call.
+   * Useful for API keys, tenant IDs, or other custom headers.
+   */
+  upstreamHeaders?: UpstreamHeaderConfig[];
   /**
    * Hosted worker mode for Emcy-hosted MCP servers.
    * In this mode the generated runtime is an internal execution worker, not the
    * public MCP OAuth/resource boundary. Emcy forwards a downstream app token on
    * each request and authenticates to the worker with a shared secret.
    */
-  hostedWorkerConfig?: {
-    enabled: boolean;
-    workerSecretHeader?: string;
-    workerSecretEnvVar?: string;
-    upstreamAccessTokenHeader?: string;
-  };
+  hostedWorkerConfig?: HostedWorkerConfig;
   /**
    * MCP Prompts configuration.
    * Prompts are pre-defined templates that help AI understand context and accomplish specific tasks.

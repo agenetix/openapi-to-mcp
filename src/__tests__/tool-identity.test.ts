@@ -17,7 +17,7 @@ interface ToolNamingFixture {
 }
 
 const fixtures = JSON.parse(
-  readFileSync(new URL("../../../shared/tool-naming-fixtures.json", import.meta.url), "utf8"),
+  readFileSync(new URL("../../fixtures/tool-naming-fixtures.json", import.meta.url), "utf8"),
 ) as ToolNamingFixture[];
 
 describe("tool identity", () => {

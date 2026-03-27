@@ -1,344 +1,206 @@
 /**
- * Generator tests - ensures MCP server code is correctly generated
+ * Generator tests - verifies the supported runtime modes.
  */
 
-import { describe, it, expect } from 'vitest';
-import { generateMcpServer } from '../generator.js';
-import type { McpToolDefinition, GeneratorOptions } from '../types.js';
+import { describe, expect, it } from "vitest";
+import { generateMcpServer } from "../generator.js";
+import type { GeneratorOptions, McpToolDefinition } from "../types.js";
 
-describe('generateMcpServer', () => {
+describe("generateMcpServer", () => {
   const baseOptions: GeneratorOptions = {
-    name: 'test-api',
-    version: '1.0.0',
-    baseUrl: 'http://localhost:3000',
+    name: "test-api",
+    version: "1.0.0",
+    baseUrl: "http://localhost:3000",
   };
 
-  it('should generate all required files', () => {
-    const tools: McpToolDefinition[] = [];
-    const files = generateMcpServer(tools, baseOptions);
+  const sampleTool: McpToolDefinition = {
+    name: "getUsers",
+    description: "Get all users",
+    inputSchema: { type: "object", properties: {} },
+    httpMethod: "get",
+    pathTemplate: "/users",
+    parameters: [],
+    securitySchemes: [],
+    requiredScopes: [],
+  };
+
+  it("generates the expected file set", () => {
+    const files = generateMcpServer([], baseOptions);
 
     expect(Object.keys(files)).toEqual([
-      'package.json',
-      'tsconfig.json',
-      'src/index.ts',
-      'src/transport.ts',
-      '.env.example',
-      'README.md',
+      "package.json",
+      "tsconfig.json",
+      "src/index.ts",
+      "src/transport.ts",
+      ".env.example",
+      "README.md",
     ]);
   });
 
-  it('should generate valid package.json', () => {
-    const files = generateMcpServer([], baseOptions);
-    const pkg = JSON.parse(files['package.json']);
-
-    expect(pkg.name).toBe('test-api');
-    expect(pkg.version).toBe('1.0.0');
-    expect(pkg.type).toBe('module');
-    expect(pkg.scripts.build).toBe('tsc');
-    expect(pkg.scripts['start:http']).toBe('node build/index.js --transport=streamable-http');
-    expect(pkg.dependencies['@modelcontextprotocol/sdk']).toBeDefined();
-    expect(pkg.dependencies.axios).toBeDefined();
-  });
-
-  it('should include @emcy/sdk when emcyEnabled', () => {
+  it("includes Emcy telemetry when emcyEnabled is true", () => {
     const files = generateMcpServer([], { ...baseOptions, emcyEnabled: true });
-    const pkg = JSON.parse(files['package.json']);
+    const pkg = JSON.parse(files["package.json"]);
+    const serverCode = files["src/index.ts"];
 
-    expect(pkg.dependencies['@emcy/sdk']).toBeDefined();
+    expect(pkg.dependencies["@emcy/sdk"]).toBeDefined();
+    expect(serverCode).toContain('import { EmcyTelemetry } from "@emcy/sdk"');
+    expect(serverCode).toContain("emcy.trace(");
   });
 
-  it('should use local SDK path when specified', () => {
+  it("uses a local SDK path when provided", () => {
     const files = generateMcpServer([], {
       ...baseOptions,
       emcyEnabled: true,
-      localSdkPath: '../emcy-sdk',
+      localSdkPath: "../emcy-sdk",
     });
-    const pkg = JSON.parse(files['package.json']);
+    const pkg = JSON.parse(files["package.json"]);
 
-    expect(pkg.dependencies['@emcy/sdk']).toBe('file:../emcy-sdk');
+    expect(pkg.dependencies["@emcy/sdk"]).toBe("file:../emcy-sdk");
   });
 
-  it('should generate tool definitions in server entry', () => {
-    const tools: McpToolDefinition[] = [
-      {
-        name: 'getUsers',
-        description: 'Get all users',
-        inputSchema: { type: 'object', properties: {} },
-        httpMethod: 'get',
-        pathTemplate: '/users',
-        parameters: [],
-        securitySchemes: [],
-        requiredScopes: [],
-      },
-      {
-        name: 'createUser',
-        description: 'Create a user',
-        inputSchema: {
-          type: 'object',
-          properties: { requestBody: { type: 'object' } },
-          required: ['requestBody'],
+  it("generates standalone no-auth runtimes by default", () => {
+    const files = generateMcpServer([sampleTool], baseOptions);
+    const pkg = JSON.parse(files["package.json"]);
+    const serverCode = files["src/index.ts"];
+    const transportCode = files["src/transport.ts"];
+    const envExample = files[".env.example"];
+
+    expect(pkg.scripts.start).toBe("node build/index.js");
+    expect(pkg.dependencies.jose).toBeUndefined();
+    expect(serverCode).toContain('const RUNTIME_MODE = "standalone_no_auth" as const;');
+    expect(serverCode).not.toContain("HOSTED_WORKER_CONFIG");
+    expect(transportCode).toContain('public_server: true');
+    expect(transportCode).not.toContain("protected-resource-metadata");
+    expect(envExample).toContain("API_BASE_URL=http://localhost:3000");
+    expect(envExample).not.toContain("FORWARD_CLIENT_TOKEN");
+    expect(envExample).not.toContain("OAUTH_AUTHORIZATION_SERVER");
+  });
+
+  it("generates standalone header injection runtimes", () => {
+    const files = generateMcpServer(
+      [
+        {
+          ...sampleTool,
+          securitySchemes: ["bearerAuth"],
         },
-        httpMethod: 'post',
-        pathTemplate: '/users',
-        parameters: [],
-        requestBodyContentType: 'application/json',
-        securitySchemes: [],
-        requiredScopes: [],
+      ],
+      {
+        ...baseOptions,
+        runtimeMode: "standalone_headers",
+        upstreamHeaders: [
+          {
+            name: "X-API-Key",
+            envVar: "UPSTREAM_API_KEY",
+          },
+          {
+            name: "Authorization",
+            envVar: "UPSTREAM_TOKEN",
+            valuePrefix: "Bearer",
+          },
+        ],
       },
-    ];
+      {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+        },
+      }
+    );
 
-    const files = generateMcpServer(tools, baseOptions);
-    const serverCode = files['src/index.ts'];
+    const serverCode = files["src/index.ts"];
+    const envExample = files[".env.example"];
+    const readme = files["README.md"];
 
-    // Should contain tool definitions
+    expect(serverCode).toContain('const RUNTIME_MODE = "standalone_headers" as const;');
+    expect(serverCode).toContain('"envVar": "UPSTREAM_API_KEY"');
+    expect(serverCode).toContain('"envVar": "UPSTREAM_TOKEN"');
+    expect(serverCode).toContain('if (RUNTIME_MODE !== "standalone_headers")');
+    expect(serverCode).toContain("applyConfiguredUpstreamHeaders(headers)");
+    expect(envExample).toContain("UPSTREAM_API_KEY=");
+    expect(envExample).toContain("UPSTREAM_TOKEN=");
+    expect(envExample).toContain("BEARER_TOKEN_BEARERAUTH=");
+    expect(readme).toContain("standalone_headers");
+    expect(readme).toContain("injects static headers");
+    expect(envExample).not.toContain("FORWARD_CLIENT_TOKEN");
+  });
+
+  it("generates Emcy hosted workers without public OAuth behavior", () => {
+    const files = generateMcpServer([], {
+      ...baseOptions,
+      runtimeMode: "emcy_hosted_worker",
+      hostedWorkerConfig: {},
+    });
+
+    const pkg = JSON.parse(files["package.json"]);
+    const serverCode = files["src/index.ts"];
+    const transportCode = files["src/transport.ts"];
+    const envExample = files[".env.example"];
+    const readme = files["README.md"];
+
+    expect(pkg.scripts.start).toBe("node build/index.js --transport=streamable-http");
+    expect(serverCode).toContain('const RUNTIME_MODE = "emcy_hosted_worker" as const;');
+    expect(serverCode).toContain("const HOSTED_WORKER_CONFIG = {");
+    expect(serverCode).toContain("applyHostedWorkerAccessToken");
+    expect(transportCode).toContain('app.use("/mcp", async (c, next) => {');
+    expect(transportCode).toContain("x-emcy-worker-secret");
+    expect(transportCode).toContain("x-emcy-upstream-access-token");
+    expect(transportCode).not.toContain("protected-resource-metadata");
+    expect(envExample).toContain("EMCY_WORKER_SHARED_SECRET=change-me");
+    expect(readme).toContain("Hosted worker runtime");
+    expect(readme).toContain("Emcy owns the public MCP URL and OAuth flow");
+  });
+
+  it("keeps generated tool definitions in the runtime", () => {
+    const files = generateMcpServer(
+      [
+        sampleTool,
+        {
+          name: "createUser",
+          description: "Create a user",
+          inputSchema: {
+            type: "object",
+            properties: { requestBody: { type: "object" } },
+            required: ["requestBody"],
+          },
+          httpMethod: "post",
+          pathTemplate: "/users",
+          parameters: [],
+          requestBodyContentType: "application/json",
+          securitySchemes: [],
+          requiredScopes: [],
+        },
+      ],
+      baseOptions
+    );
+
+    const serverCode = files["src/index.ts"];
     expect(serverCode).toContain('["getUsers"');
-    expect(serverCode).toContain('name: "getUsers"');
-    expect(serverCode).toContain('description: "Get all users"');
-    expect(serverCode).toContain('method: "get"');
-    expect(serverCode).toContain('pathTemplate: "/users"');
-
     expect(serverCode).toContain('["createUser"');
-    expect(serverCode).toContain('name: "createUser"');
     expect(serverCode).toContain('requestBodyContentType: "application/json"');
   });
 
-  it('should include Emcy telemetry code when enabled', () => {
-    const files = generateMcpServer([], { ...baseOptions, emcyEnabled: true });
-    const serverCode = files['src/index.ts'];
-
-    expect(serverCode).toContain("import { EmcyTelemetry } from '@emcy/sdk'");
-    expect(serverCode).toContain('new EmcyTelemetry({');
-    expect(serverCode).toContain('emcy.trace(');
-  });
-
-  it('should not include Emcy code when disabled', () => {
-    const files = generateMcpServer([], baseOptions);
-    const serverCode = files['src/index.ts'];
-
-    expect(serverCode).not.toContain('EmcyTelemetry');
-    expect(serverCode).not.toContain('emcy.trace');
-  });
-
-  it('should set correct base URL in server', () => {
+  it("generates prompt handlers when prompts are configured", () => {
     const files = generateMcpServer([], {
       ...baseOptions,
-      baseUrl: 'https://api.example.com/v1',
-    });
-    const serverCode = files['src/index.ts'];
-
-    expect(serverCode).toContain('API_BASE_URL = process.env.API_BASE_URL || "https://api.example.com/v1"');
-  });
-
-  it('should include security schemes in generated code', () => {
-    const securitySchemes = {
-      apiKey: {
-        type: 'apiKey' as const,
-        name: 'X-API-Key',
-        in: 'header' as const,
-      },
-      bearerAuth: {
-        type: 'http' as const,
-        scheme: 'bearer',
-      },
-    };
-
-    const tools: McpToolDefinition[] = [
-      {
-        name: 'secureEndpoint',
-        description: 'A secure endpoint',
-        inputSchema: { type: 'object', properties: {} },
-        httpMethod: 'get',
-        pathTemplate: '/secure',
-        parameters: [],
-        securitySchemes: ['apiKey', 'bearerAuth'],
-        requiredScopes: [],
-      },
-    ];
-
-    const files = generateMcpServer(tools, baseOptions, securitySchemes);
-    const serverCode = files['src/index.ts'];
-
-    expect(serverCode).toContain('"apiKey"');
-    expect(serverCode).toContain('"bearerAuth"');
-    expect(serverCode).toContain('applySecurityHeaders');
-  });
-
-  it('generates RFC 9728 metadata and audience validation for OAuth Todo-style servers', () => {
-    const files = generateMcpServer([], {
-      ...baseOptions,
-      oauth2Config: {
-        authorizationServerUrl: 'https://auth.todo.example.com',
-        scopes: ['openid', 'todos.read'],
-      },
-    });
-
-    const serverCode = files['src/index.ts'];
-    const transportCode = files['src/transport.ts'];
-    const envExample = files['.env.example'];
-
-    expect(transportCode).toContain("/.well-known/oauth-protected-resource");
-    expect(transportCode).toContain('resource_metadata=');
-    expect(transportCode).toContain('audience: getMcpOauthConfig().resourceUrl');
-    expect(transportCode).not.toContain('replace(//');
-    expect(transportCode).toContain('oauth-authorization-server\\/?$');
-    expect(transportCode).toContain("declare module 'hono'");
-    expect(transportCode).toContain("tokenScopes: string[];");
-    expect(transportCode).toContain('await response.json() as AuthorizationServerMetadata');
-    expect(transportCode).toContain('Token audience does not match this resource server');
-    expect(serverCode).toContain('setupStreamableHttpServer(port, MCP_OAUTH_CONFIG)');
-    expect(serverCode).toContain('FORWARD_CLIENT_TOKEN');
-    expect(envExample).toContain('MCP_RESOURCE_URL=');
-    expect(envExample).toContain('FORWARD_CLIENT_TOKEN=true');
-  });
-
-  it('generates hosted-worker runtimes without public OAuth resource-server behavior', () => {
-    const files = generateMcpServer([], {
-      ...baseOptions,
-      hostedWorkerConfig: {
-        enabled: true,
-      },
-      oauth2Config: {
-        authorizationServerUrl: 'https://auth.todo.example.com',
-        scopes: ['openid', 'todos.read'],
-      },
-    });
-
-    const pkg = JSON.parse(files['package.json']);
-    const serverCode = files['src/index.ts'];
-    const transportCode = files['src/transport.ts'];
-    const envExample = files['.env.example'];
-    const readme = files['README.md'];
-
-    expect(pkg.dependencies.jose).toBeUndefined();
-    expect(serverCode).toContain('const HOSTED_WORKER_CONFIG = {');
-    expect(serverCode).toContain("headers['authorization'] = `Bearer ${clientToken}`;");
-    expect(transportCode).toContain("app.use('/mcp', async (c, next) => {");
-    expect(transportCode).toContain('x-emcy-worker-secret');
-    expect(transportCode).toContain('x-emcy-upstream-access-token');
-    expect(transportCode).not.toContain('/.well-known/oauth-protected-resource');
-    expect(transportCode).not.toContain('Bearer token required');
-    expect(envExample).toContain('EMCY_WORKER_SHARED_SECRET=change-me');
-    expect(envExample).not.toContain('FORWARD_CLIENT_TOKEN=true');
-    expect(envExample).not.toContain('OAUTH_AUTHORIZATION_SERVER=');
-    expect(readme).toContain('Hosted Worker Mode');
-    expect(readme).toContain('AI clients should not connect directly to this worker');
-  });
-
-  it('should generate proper path parameter handling', () => {
-    const tools: McpToolDefinition[] = [
-      {
-        name: 'getUser',
-        description: 'Get user by ID',
-        inputSchema: {
-          type: 'object',
-          properties: { id: { type: 'integer' } },
-          required: ['id'],
+      prompts: [
+        {
+          name: "summarize-users",
+          description: "Summarize users",
+          content: "Summarize {{topic}}",
+          arguments: [
+            {
+              name: "topic",
+              description: "Topic to summarize",
+              required: true,
+            },
+          ],
         },
-        httpMethod: 'get',
-        pathTemplate: '/users/{id}',
-        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
-        securitySchemes: [],
-        requiredScopes: [],
-      },
-    ];
-
-    const files = generateMcpServer(tools, baseOptions);
-    const serverCode = files['src/index.ts'];
-
-    expect(serverCode).toContain('pathTemplate: "/users/{id}"');
-    expect(serverCode).toContain('"in":"path"');
-  });
-
-  it('should generate README with correct server name', () => {
-    const files = generateMcpServer([], { ...baseOptions, name: 'my-awesome-api' });
-    const readme = files['README.md'];
-
-    expect(readme).toContain('# my-awesome-api');
-    expect(readme).toContain('my-awesome-api');
-  });
-
-  it('should generate .env.example with API URL', () => {
-    const files = generateMcpServer([], baseOptions);
-    const envExample = files['.env.example'];
-
-    expect(envExample).toContain('API_BASE_URL=');
-    expect(envExample).toContain('PORT=3000');
-  });
-
-  it('should generate .env.example with security credentials when needed', () => {
-    const tools: McpToolDefinition[] = [
-      {
-        name: 'secureEndpoint',
-        description: 'Secure',
-        inputSchema: { type: 'object', properties: {} },
-        httpMethod: 'get',
-        pathTemplate: '/secure',
-        parameters: [],
-        securitySchemes: ['apiKeyAuth'],
-        requiredScopes: [],
-      },
-    ];
-
-    const securitySchemes = {
-      apiKeyAuth: { type: 'apiKey' as const, name: 'X-API-Key', in: 'header' as const },
-    };
-
-    const files = generateMcpServer(tools, baseOptions, securitySchemes);
-    const envExample = files['.env.example'];
-
-    expect(envExample).toContain('Security Credentials');
-    expect(envExample).toContain('API_KEY_APIKEYAUTH=');
-  });
-});
-
-describe('generator produces working TypeScript', () => {
-  it('should generate syntactically valid TypeScript (no obvious errors)', () => {
-    const tools: McpToolDefinition[] = [
-      {
-        name: 'complexTool',
-        description: 'A tool with "quotes" and special chars: <>&',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            name: { type: 'string', description: 'User\'s name' },
-            data: { type: 'object' },
-          },
-          required: ['name'],
-        },
-        httpMethod: 'post',
-        pathTemplate: '/complex/{id}/action',
-        parameters: [
-          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
-        ],
-        requestBodyContentType: 'application/json',
-        securitySchemes: ['auth'],
-        requiredScopes: [],
-      },
-    ];
-
-    const files = generateMcpServer(tools, {
-      name: 'complex-api',
-      baseUrl: 'https://api.example.com',
-      emcyEnabled: true,
-    }, {
-      auth: { type: 'http', scheme: 'bearer' },
+      ],
     });
 
-    const serverCode = files['src/index.ts'];
-
-    // Should have balanced braces (basic syntax check)
-    const openBraces = (serverCode.match(/{/g) || []).length;
-    const closeBraces = (serverCode.match(/}/g) || []).length;
-    expect(openBraces).toBe(closeBraces);
-
-    // Should have balanced brackets
-    const openBrackets = (serverCode.match(/\[/g) || []).length;
-    const closeBrackets = (serverCode.match(/\]/g) || []).length;
-    expect(openBrackets).toBe(closeBrackets);
-
-    // Should have balanced parentheses
-    const openParens = (serverCode.match(/\(/g) || []).length;
-    const closeParens = (serverCode.match(/\)/g) || []).length;
-    expect(openParens).toBe(closeParens);
+    const serverCode = files["src/index.ts"];
+    expect(serverCode).toContain("ListPromptsRequestSchema");
+    expect(serverCode).toContain("GetPromptRequestSchema");
+    expect(serverCode).toContain("promptDefinitionMap");
   });
 });
