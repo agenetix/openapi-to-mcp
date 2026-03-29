@@ -10,10 +10,12 @@
 import type {
   GeneratorOptions,
   GeneratedFiles,
+  HostedOauthConfig,
   McpToolDefinition,
   PromptDefinition,
   RuntimeMode,
   SecurityScheme,
+  ToolInstructionConfig,
   UpstreamHeaderConfig,
 } from "./types.js";
 
@@ -53,6 +55,37 @@ function formatHeaderDescription(headers: UpstreamHeaderConfig[]): string {
         : `${header.name} (<${header.envVar}>)`
     )
     .join(", ");
+}
+
+function formatHostedOauthDescription(config?: HostedOauthConfig): string {
+  if (!config) {
+    return "none";
+  }
+
+  return [
+    config.provider || "manual",
+    config.authorizationServerUrl,
+    config.clientId ? `client ${config.clientId}` : undefined,
+    config.resource ? `resource ${config.resource}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function formatToolInstructionSummary(
+  toolInstructions?: Record<string, ToolInstructionConfig>
+): string {
+  const entries = Object.entries(toolInstructions ?? {}).filter(([, config]) =>
+    Object.values(config).some(
+      (value) => typeof value === "string" && value.trim().length > 0
+    )
+  );
+
+  if (entries.length === 0) {
+    return "none";
+  }
+
+  return entries.map(([toolKey]) => toolKey).join(", ");
 }
 
 /**
@@ -154,6 +187,8 @@ function generateServerEntry(
   const runtimeMode = getRuntimeMode(options);
   const hasHostedWorker = runtimeMode === "emcy_hosted_worker";
   const configuredHeaders = options.upstreamHeaders ?? [];
+  const hostedOauthConfig = options.hostedOauthConfig;
+  const toolInstructions = options.toolInstructions;
 
   const toolDefinitions = tools
     .map(
@@ -226,7 +261,7 @@ const HOSTED_WORKER_CONFIG = {
   const upstreamHeaderConfig = `
 type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";
 const RUNTIME_MODE: RuntimeMode = ${JSON.stringify(runtimeMode)};
-const UPSTREAM_HEADERS = ${JSON.stringify(configuredHeaders, null, 2)} as const;
+const UPSTREAM_HEADERS: RuntimeUpstreamHeader[] = ${JSON.stringify(configuredHeaders, null, 2)};
 `;
 
   const hasPrompts = options.prompts && options.prompts.length > 0;
@@ -287,12 +322,29 @@ interface RuntimeUpstreamHeader {
   defaultValue?: string;
 }
 
+interface RuntimeHostedOauthConfig {
+  provider?: string;
+  authorizationServerUrl?: string;
+  clientId?: string;
+  resource?: string;
+  scopes?: string[];
+}
+
+interface RuntimeToolInstruction {
+  customInstructions?: string;
+  exampleUsage?: string;
+  whenToUse?: string;
+  whenNotToUse?: string;
+}
+
 const securitySchemes: Record<string, unknown> = ${JSON.stringify(
     securitySchemes,
     null,
     2
   )};
 ${upstreamHeaderConfig}${hostedWorkerConfig}${emcyInit}
+const HOSTED_OAUTH_CONFIG: RuntimeHostedOauthConfig | null = ${JSON.stringify(hostedOauthConfig ?? null, null, 2)};
+const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = ${JSON.stringify(toolInstructions ?? {}, null, 2)};
 const toolDefinitionMap: Map<string, RuntimeToolDefinition> = new Map([
 ${toolDefinitions}
 ]);
@@ -443,7 +495,7 @@ function applySecurityHeaders(headers: Record<string, string>, schemeNames: stri
 }
 
 function applyConfiguredUpstreamHeaders(headers: Record<string, string>): void {
-  for (const header of UPSTREAM_HEADERS as readonly RuntimeUpstreamHeader[]) {
+  for (const header of UPSTREAM_HEADERS) {
     const rawValue = process.env[header.envVar] || header.defaultValue;
     if (!rawValue) {
       continue;
@@ -832,6 +884,17 @@ function generateEnvExample(
       "# EMCY_WORKER_SECRET_HEADER=x-emcy-worker-secret",
       "# EMCY_UPSTREAM_ACCESS_TOKEN_HEADER=x-emcy-upstream-access-token"
     );
+    if (options.hostedOauthConfig?.authorizationServerUrl) {
+      lines.push(
+        "",
+        "# Hosted OAuth reference",
+        `# Provider: ${options.hostedOauthConfig.provider ?? "manual"}`,
+        `# Authorization server: ${options.hostedOauthConfig.authorizationServerUrl}`,
+        `# Client ID: ${options.hostedOauthConfig.clientId ?? ""}`,
+        `# Resource: ${options.hostedOauthConfig.resource ?? ""}`,
+        `# Scopes: ${(options.hostedOauthConfig.scopes ?? []).join(" ")}`
+      );
+    }
   }
 
   const configuredHeaders = options.upstreamHeaders ?? [];
@@ -891,6 +954,8 @@ function generateReadme(
 ): string {
   const runtimeMode = getRuntimeMode(options);
   const configuredHeaders = options.upstreamHeaders ?? [];
+  const hostedOauthSummary = formatHostedOauthDescription(options.hostedOauthConfig);
+  const toolInstructionSummary = formatToolInstructionSummary(options.toolInstructions);
   const hasPrompts = options.prompts && options.prompts.length > 0;
   const promptSection = hasPrompts
     ? `
@@ -913,6 +978,8 @@ This runtime is intended to run behind Emcy-hosted MCP auth.
 
 - Emcy owns the public MCP URL and OAuth flow
 - Emcy forwards a short-lived downstream access token to this worker
+- Hosted OAuth config: ${hostedOauthSummary}
+- Tool instructions configured for: ${toolInstructionSummary}
 - MCP clients should connect to Emcy, not directly to this worker
 
 ## Quick Start

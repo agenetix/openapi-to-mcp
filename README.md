@@ -45,7 +45,12 @@ npx @emcy/openapi-to-mcp generate \
 npx @emcy/openapi-to-mcp generate \
   --url ./openapi.yaml \
   --name my-app \
-  --mode emcy-hosted-worker
+  --mode emcy-hosted-worker \
+  --hosted-provider sqlos \
+  --hosted-auth-server-url https://auth.example.com/sqlos/auth \
+  --hosted-client-id todo-mcp-local \
+  --hosted-resource https://api.example.com/todos \
+  --hosted-scopes "openid profile email offline_access todos.read todos.write"
 ```
 
 ## Installation
@@ -74,8 +79,14 @@ npx @emcy/openapi-to-mcp generate [options]
 | `--emcy` | `-e` | Include `@emcy/sdk` telemetry |
 | `--local-sdk` |  | Use a local `@emcy/sdk` path |
 | `--prompts-json` |  | JSON array of MCP prompt definitions |
+| `--tool-instructions-json` |  | JSON object keyed by tool key for tool-specific AI guidance |
 | `--mode` |  | `standalone-no-auth`, `standalone-headers`, or `emcy-hosted-worker` |
 | `--header` |  | Repeatable `Header-Name=ENV_VAR` mapping for upstream requests |
+| `--hosted-provider` |  | Hosted OAuth provider recipe label for `emcy-hosted-worker` |
+| `--hosted-auth-server-url` |  | Downstream authorization server issuer or metadata base URL |
+| `--hosted-client-id` |  | Downstream client ID Emcy should use |
+| `--hosted-resource` |  | Downstream API resource / audience |
+| `--hosted-scopes` |  | Comma or space separated downstream scopes |
 | `--force` | `-f` | Overwrite the output directory |
 
 ### `validate`
@@ -140,7 +151,12 @@ The generated runtime is not the public MCP server. It is the private worker Emc
 ```bash
 npx @emcy/openapi-to-mcp generate \
   --url ./openapi.json \
-  --mode emcy-hosted-worker
+  --mode emcy-hosted-worker \
+  --hosted-provider sqlos \
+  --hosted-auth-server-url https://auth.example.com/sqlos/auth \
+  --hosted-client-id todo-mcp-local \
+  --hosted-resource https://api.example.com/todos \
+  --hosted-scopes "openid profile email offline_access todos.read todos.write"
 ```
 
 This is the right mode for apps protected by systems like:

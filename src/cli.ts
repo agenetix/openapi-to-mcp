@@ -17,7 +17,10 @@ import { existsSync } from 'node:fs';
 import { parseOpenAPI, validateOpenAPI } from './parser.js';
 import { mapToMcpTools } from './mapper.js';
 import { generateMcpServer } from './generator.js';
-import type { RuntimeMode, UpstreamHeaderConfig } from './types.js';
+import {
+  parseGeneratorCliConfig,
+  pickGeneratorOptions,
+} from './cli-config.js';
 
 const VERSION = '0.1.0';
 
@@ -42,10 +45,16 @@ GENERATE OPTIONS:
   --force, -f     Overwrite existing output directory
   --local-sdk     Path to local @emcy/sdk for development (uses file: reference)
   --prompts-json  JSON array of prompt definitions for MCP prompts feature
+  --tool-instructions-json  JSON object keyed by tool key for tool-specific guidance
   --mode          Runtime mode:
                   standalone-no-auth | standalone-headers | emcy-hosted-worker
   --header        Upstream header mapping in the form Header-Name=ENV_VAR
                   Repeatable. Applies to standalone-headers and emcy-hosted-worker.
+  --hosted-provider        Hosted OAuth provider recipe label
+  --hosted-auth-server-url Hosted OAuth issuer or metadata base URL
+  --hosted-client-id       Downstream client ID Emcy should use
+  --hosted-resource        Downstream API resource / audience
+  --hosted-scopes          Comma or space separated downstream scopes
 
 EXAMPLES:
   # Generate from a URL
@@ -61,7 +70,12 @@ EXAMPLES:
   npx @emcy/openapi-to-mcp generate --url ./api.json --mode standalone-headers --header X-API-Key=UPSTREAM_API_KEY
 
   # Generate an Emcy-hosted worker for OAuth-protected apps
-  npx @emcy/openapi-to-mcp generate --url ./api.json --mode emcy-hosted-worker
+  npx @emcy/openapi-to-mcp generate --url ./api.json --mode emcy-hosted-worker \\
+    --hosted-provider sqlos \\
+    --hosted-auth-server-url https://auth.example.com/sqlos/auth \\
+    --hosted-client-id todo-mcp-local \\
+    --hosted-resource https://api.example.com/todos \\
+    --hosted-scopes "openid profile email offline_access todos.read todos.write"
 
   # Validate an OpenAPI spec
   npx @emcy/openapi-to-mcp validate --url https://api.example.com/openapi.json
@@ -141,8 +155,14 @@ async function runGenerate(args: string[]) {
       force: { type: 'boolean', short: 'f', default: false },
       'local-sdk': { type: 'string' },  // Path to local @emcy/sdk for dev
       'prompts-json': { type: 'string' },  // JSON array of prompt definitions
+      'tool-instructions-json': { type: 'string' },
       mode: { type: 'string' },
       header: { type: 'string', multiple: true },
+      'hosted-provider': { type: 'string' },
+      'hosted-auth-server-url': { type: 'string' },
+      'hosted-client-id': { type: 'string' },
+      'hosted-resource': { type: 'string' },
+      'hosted-scopes': { type: 'string' },
     },
     allowPositionals: false,
   });
@@ -182,52 +202,49 @@ async function runGenerate(args: string[]) {
       process.exit(1);
     }
 
-    // Parse prompts if provided
-    let prompts: { name: string; title?: string; description: string; content: string }[] | undefined;
-    if (values['prompts-json']) {
-      try {
-        prompts = JSON.parse(values['prompts-json']);
-        if (!Array.isArray(prompts)) {
-          throw new Error('prompts-json must be a JSON array');
-        }
-      } catch (error) {
-        console.error('Error parsing --prompts-json:', error instanceof Error ? error.message : error);
-        process.exit(1);
-      }
+    let parsedConfig;
+    try {
+      parsedConfig = parseGeneratorCliConfig(values);
+    } catch (error) {
+      console.error('Error parsing generator options:', error instanceof Error ? error.message : error);
+      process.exit(1);
     }
-
-    const runtimeMode = resolveRuntimeMode(values.mode, values.header);
-    const upstreamHeaders = parseUpstreamHeaders(values.header);
 
     console.log(`\nGenerating MCP server: ${serverName}`);
     console.log(`  Output: ${resolvedOutput}`);
     console.log(`  Emcy Telemetry: ${values.emcy ? 'enabled' : 'disabled'}`);
-    console.log(`  Runtime Mode: ${runtimeMode}`);
+    console.log(`  Runtime Mode: ${parsedConfig.runtimeMode}`);
     if (values['local-sdk']) {
       console.log(`  Local SDK: ${values['local-sdk']}`);
     }
-    if (prompts && prompts.length > 0) {
-      console.log(`  Prompts: ${prompts.length} prompt(s) configured`);
+    if (parsedConfig.prompts && parsedConfig.prompts.length > 0) {
+      console.log(`  Prompts: ${parsedConfig.prompts.length} prompt(s) configured`);
     }
-    if (upstreamHeaders.length > 0) {
-      console.log(`  Upstream Headers: ${upstreamHeaders.map((header) => `${header.name}<- ${header.envVar}`).join(', ')}`);
+    if (parsedConfig.upstreamHeaders.length > 0) {
+      console.log(`  Upstream Headers: ${parsedConfig.upstreamHeaders.map((header) => `${header.name}<- ${header.envVar}`).join(', ')}`);
+    }
+    if (parsedConfig.toolInstructions) {
+      console.log(`  Tool Instructions: ${Object.keys(parsedConfig.toolInstructions).length} tool(s) customized`);
+    }
+    if (parsedConfig.hostedOauthConfig) {
+      console.log(`  Hosted OAuth: ${parsedConfig.hostedOauthConfig.provider || 'manual'}${parsedConfig.hostedOauthConfig.authorizationServerUrl ? ` via ${parsedConfig.hostedOauthConfig.authorizationServerUrl}` : ''}`);
     }
 
     // Generate the server
-    const files = generateMcpServer(tools, {
-      name: serverName,
-      version: values.version || parsed.version || '1.0.0',
-      baseUrl: values['base-url'] || parsed.baseUrl || 'http://localhost:3000',
-      emcyEnabled: values.emcy || false,
-      localSdkPath: values['local-sdk'],
-      prompts: prompts,
-      runtimeMode,
-      upstreamHeaders,
-      hostedWorkerConfig:
-        runtimeMode === 'emcy_hosted_worker'
-          ? {}
-          : undefined,
-    }, parsed.securitySchemes);
+    const files = generateMcpServer(
+      tools,
+      pickGeneratorOptions(
+        {
+          name: serverName,
+          version: values.version || parsed.version || '1.0.0',
+          baseUrl: values['base-url'] || parsed.baseUrl || 'http://localhost:3000',
+          emcyEnabled: values.emcy || false,
+          localSdkPath: values['local-sdk'],
+        },
+        parsedConfig
+      ),
+      parsed.securitySchemes
+    );
 
     // Write files
     await mkdir(resolvedOutput, { recursive: true });
@@ -265,68 +282,6 @@ async function runGenerate(args: string[]) {
     console.error('\nError generating MCP server:', error instanceof Error ? error.message : error);
     process.exit(1);
   }
-}
-
-function resolveRuntimeMode(
-  mode: string | undefined,
-  headerArgs: string[] | undefined
-): RuntimeMode {
-  const normalizedMode = normalizeRuntimeMode(mode);
-  if (normalizedMode) {
-    return normalizedMode;
-  }
-
-  if ((headerArgs?.length ?? 0) > 0) {
-    return 'standalone_headers';
-  }
-
-  return 'standalone_no_auth';
-}
-
-function normalizeRuntimeMode(mode: string | undefined): RuntimeMode | undefined {
-  if (!mode) {
-    return undefined;
-  }
-
-  const normalized = mode.trim().toLowerCase();
-  if (normalized === 'standalone-no-auth' || normalized === 'standalone_no_auth') {
-    return 'standalone_no_auth';
-  }
-
-  if (normalized === 'standalone-headers' || normalized === 'standalone_headers') {
-    return 'standalone_headers';
-  }
-
-  if (normalized === 'emcy-hosted-worker' || normalized === 'emcy_hosted_worker') {
-    return 'emcy_hosted_worker';
-  }
-
-  console.error(`Error: Unsupported --mode "${mode}"`);
-  console.error('Supported modes: standalone-no-auth, standalone-headers, emcy-hosted-worker');
-  process.exit(1);
-}
-
-function parseUpstreamHeaders(headerArgs: string[] | undefined): UpstreamHeaderConfig[] {
-  if (!headerArgs || headerArgs.length === 0) {
-    return [];
-  }
-
-  return headerArgs.map((value) => {
-    const separatorIndex = value.indexOf('=');
-    if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
-      console.error(`Error: Invalid --header "${value}". Use Header-Name=ENV_VAR.`);
-      process.exit(1);
-    }
-
-    const name = value.slice(0, separatorIndex).trim();
-    const envVar = value.slice(separatorIndex + 1).trim();
-    if (!name || !envVar) {
-      console.error(`Error: Invalid --header "${value}". Use Header-Name=ENV_VAR.`);
-      process.exit(1);
-    }
-
-    return { name, envVar };
-  });
 }
 
 async function loadSpec(urlOrPath: string): Promise<string | object> {

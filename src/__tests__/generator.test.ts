@@ -131,6 +131,18 @@ describe("generateMcpServer", () => {
       ...baseOptions,
       runtimeMode: "emcy_hosted_worker",
       hostedWorkerConfig: {},
+      hostedOauthConfig: {
+        provider: "sqlos",
+        authorizationServerUrl: "https://auth.example.com/sqlos/auth",
+        clientId: "todo-mcp-local",
+        resource: "https://api.example.com/todos",
+        scopes: ["openid", "profile", "todos.read", "todos.write"],
+      },
+      toolInstructions: {
+        get_api_todos: {
+          whenToUse: "Use when the user asks to list todos.",
+        },
+      },
     });
 
     const pkg = JSON.parse(files["package.json"]);
@@ -143,14 +155,38 @@ describe("generateMcpServer", () => {
     expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";');
     expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "emcy_hosted_worker";');
     expect(serverCode).toContain("const HOSTED_WORKER_CONFIG = {");
+    expect(serverCode).toContain("const HOSTED_OAUTH_CONFIG: RuntimeHostedOauthConfig | null = {");
+    expect(serverCode).toContain("const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = {");
     expect(serverCode).toContain("applyHostedWorkerAccessToken");
     expect(transportCode).toContain('app.use("/mcp", async (c, next) => {');
     expect(transportCode).toContain("x-emcy-worker-secret");
     expect(transportCode).toContain("x-emcy-upstream-access-token");
     expect(transportCode).not.toContain("protected-resource-metadata");
     expect(envExample).toContain("EMCY_WORKER_SHARED_SECRET=change-me");
+    expect(envExample).toContain("# Authorization server: https://auth.example.com/sqlos/auth");
     expect(readme).toContain("Hosted worker runtime");
     expect(readme).toContain("Emcy owns the public MCP URL and OAuth flow");
+    expect(readme).toContain("Hosted OAuth config: sqlos");
+    expect(readme).toContain("Tool instructions configured for: get_api_todos");
+  });
+
+  it("does not emit invalid const assertions for empty hosted config", () => {
+    const files = generateMcpServer([], {
+      ...baseOptions,
+      runtimeMode: "emcy_hosted_worker",
+      hostedWorkerConfig: {},
+    });
+
+    const serverCode = files["src/index.ts"];
+
+    expect(serverCode).toContain(
+      "const HOSTED_OAUTH_CONFIG: RuntimeHostedOauthConfig | null = null;"
+    );
+    expect(serverCode).toContain(
+      "const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = {};"
+    );
+    expect(serverCode).not.toContain("null as const");
+    expect(serverCode).not.toContain("{} as const");
   });
 
   it("keeps generated tool definitions in the runtime", () => {

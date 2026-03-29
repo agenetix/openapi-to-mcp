@@ -144,6 +144,21 @@ export interface HostedWorkerConfig {
   upstreamAccessTokenHeader?: string;
 }
 
+export interface ToolInstructionConfig {
+  customInstructions?: string;
+  exampleUsage?: string;
+  whenToUse?: string;
+  whenNotToUse?: string;
+}
+
+export interface HostedOauthConfig {
+  provider?: string;
+  authorizationServerUrl?: string;
+  clientId?: string;
+  resource?: string;
+  scopes?: string[];
+}
+
 export interface GeneratorOptions {
   name: string;
   version?: string;
@@ -175,6 +190,18 @@ export interface GeneratorOptions {
    * each request and authenticates to the worker with a shared secret.
    */
   hostedWorkerConfig?: HostedWorkerConfig;
+  /**
+   * Tool-specific guidance keyed by canonical tool key.
+   * Emcy uses this as part of the canonical generation config shared by the
+   * wizard, CLI reproduction, and server regeneration.
+   */
+  toolInstructions?: Record<string, ToolInstructionConfig>;
+  /**
+   * Hosted OAuth metadata for Emcy-hosted workers.
+   * The private worker does not execute OAuth itself, but generated docs should
+   * still reflect the intended hosted auth configuration.
+   */
+  hostedOauthConfig?: HostedOauthConfig;
   /**
    * MCP Prompts configuration.
    * Prompts are pre-defined templates that help AI understand context and accomplish specific tasks.

@@ -23,7 +23,11 @@ export type {
   GeneratedFiles,
   EndpointParameter,
   SecurityScheme,
+  PromptDefinition,
+  PromptArgument,
   RuntimeMode,
   UpstreamHeaderConfig,
   HostedWorkerConfig,
+  ToolInstructionConfig,
+  HostedOauthConfig,
 } from './types.js';
