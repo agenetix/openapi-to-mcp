@@ -67,7 +67,8 @@ describe("generateMcpServer", () => {
 
     expect(pkg.scripts.start).toBe("node build/index.js");
     expect(pkg.dependencies.jose).toBeUndefined();
-    expect(serverCode).toContain('const RUNTIME_MODE = "standalone_no_auth" as const;');
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";');
+    expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "standalone_no_auth";');
     expect(serverCode).not.toContain("HOSTED_WORKER_CONFIG");
     expect(transportCode).toContain('public_server: true');
     expect(transportCode).not.toContain("protected-resource-metadata");
@@ -111,7 +112,8 @@ describe("generateMcpServer", () => {
     const envExample = files[".env.example"];
     const readme = files["README.md"];
 
-    expect(serverCode).toContain('const RUNTIME_MODE = "standalone_headers" as const;');
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";');
+    expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "standalone_headers";');
     expect(serverCode).toContain('"envVar": "UPSTREAM_API_KEY"');
     expect(serverCode).toContain('"envVar": "UPSTREAM_TOKEN"');
     expect(serverCode).toContain('if (RUNTIME_MODE !== "standalone_headers")');
@@ -138,7 +140,8 @@ describe("generateMcpServer", () => {
     const readme = files["README.md"];
 
     expect(pkg.scripts.start).toBe("node build/index.js --transport=streamable-http");
-    expect(serverCode).toContain('const RUNTIME_MODE = "emcy_hosted_worker" as const;');
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";');
+    expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "emcy_hosted_worker";');
     expect(serverCode).toContain("const HOSTED_WORKER_CONFIG = {");
     expect(serverCode).toContain("applyHostedWorkerAccessToken");
     expect(transportCode).toContain('app.use("/mcp", async (c, next) => {');

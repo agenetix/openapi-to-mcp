@@ -224,7 +224,8 @@ const HOSTED_WORKER_CONFIG = {
     : "";
 
   const upstreamHeaderConfig = `
-const RUNTIME_MODE = ${JSON.stringify(runtimeMode)} as const;
+type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";
+const RUNTIME_MODE: RuntimeMode = ${JSON.stringify(runtimeMode)};
 const UPSTREAM_HEADERS = ${JSON.stringify(configuredHeaders, null, 2)} as const;
 `;
 
