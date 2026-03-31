@@ -52,6 +52,9 @@ function extractFromSpec(api: OpenAPI3Doc): ParsedOpenAPI {
   // Extract base URL from servers
   const baseUrl = api.servers?.[0]?.url || '';
   
+  // Extract global security requirements (applied to endpoints that don't override)
+  const globalSecurity = api.security || [];
+
   // Extract endpoints from paths
   if (api.paths) {
     for (const [path, pathItem] of Object.entries(api.paths)) {
@@ -63,7 +66,7 @@ function extractFromSpec(api: OpenAPI3Doc): ParsedOpenAPI {
         const operation = pathItem[method] as OpenAPI3Operation | undefined;
         if (!operation) continue;
         
-        const endpoint = extractEndpoint(path, method.toUpperCase(), operation, pathItem.parameters);
+        const endpoint = extractEndpoint(path, method.toUpperCase(), operation, pathItem.parameters, globalSecurity);
         endpoints.push(endpoint);
       }
     }
@@ -83,7 +86,8 @@ function extractEndpoint(
   path: string,
   method: string,
   operation: OpenAPI3Operation,
-  pathParameters?: (OpenAPI3Parameter | OpenAPIV3.ReferenceObject | OpenAPIV3_1.ReferenceObject)[]
+  pathParameters?: (OpenAPI3Parameter | OpenAPIV3.ReferenceObject | OpenAPIV3_1.ReferenceObject)[],
+  globalSecurity?: OpenAPIV3.SecurityRequirementObject[]
 ): OpenAPIEndpoint {
   const parameters: EndpointParameter[] = [];
   
@@ -101,11 +105,17 @@ function extractEndpoint(
     requestBody = extractRequestBody(operation.requestBody as OpenAPI3RequestBody);
   }
   
-  // Extract security requirements
+  // Extract security requirements: operation-level overrides global
   const securitySchemes: string[] = [];
-  const security = operation.security || [];
+  const requiredScopes: string[] = [];
+  const security = operation.security ?? globalSecurity ?? [];
   for (const req of security) {
-    securitySchemes.push(...Object.keys(req));
+    for (const [schemeName, scopes] of Object.entries(req)) {
+      securitySchemes.push(schemeName);
+      if (Array.isArray(scopes)) {
+        requiredScopes.push(...scopes);
+      }
+    }
   }
   
   // Generate operationId if not present
@@ -120,6 +130,7 @@ function extractEndpoint(
     parameters,
     requestBody,
     securitySchemes,
+    requiredScopes: [...new Set(requiredScopes)],
     tags: operation.tags || [],
   };
 }

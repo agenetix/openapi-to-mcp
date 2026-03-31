@@ -1,16 +1,95 @@
 /**
- * Code Generator - Generates MCP server code from tool definitions
+ * Code generator for OpenAPI -> MCP runtimes.
+ *
+ * Supported runtime modes:
+ * - standalone_no_auth
+ * - standalone_headers
+ * - emcy_hosted_worker
  */
 
 import type {
-  McpToolDefinition,
   GeneratorOptions,
   GeneratedFiles,
+  HostedOauthConfig,
+  McpToolDefinition,
+  PromptDefinition,
+  RuntimeMode,
   SecurityScheme,
+  ToolInstructionConfig,
+  UpstreamHeaderConfig,
 } from "./types.js";
 
+function getRuntimeMode(options: GeneratorOptions): RuntimeMode {
+  if (options.runtimeMode) {
+    return options.runtimeMode;
+  }
+
+  if (options.hostedWorkerConfig) {
+    return "emcy_hosted_worker";
+  }
+
+  if ((options.upstreamHeaders?.length ?? 0) > 0) {
+    return "standalone_headers";
+  }
+
+  return "standalone_no_auth";
+}
+
+function isHostedWorkerMode(options: GeneratorOptions): boolean {
+  return getRuntimeMode(options) === "emcy_hosted_worker";
+}
+
+function toEnvKey(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+}
+
+function formatHeaderDescription(headers: UpstreamHeaderConfig[]): string {
+  if (headers.length === 0) {
+    return "none";
+  }
+
+  return headers
+    .map((header) =>
+      header.valuePrefix
+        ? `${header.name} (${header.valuePrefix} <${header.envVar}>)`
+        : `${header.name} (<${header.envVar}>)`
+    )
+    .join(", ");
+}
+
+function formatHostedOauthDescription(config?: HostedOauthConfig): string {
+  if (!config) {
+    return "none";
+  }
+
+  return [
+    config.provider || "manual",
+    config.authorizationServerUrl,
+    config.clientId ? `client ${config.clientId}` : undefined,
+    config.resource ? `resource ${config.resource}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function formatToolInstructionSummary(
+  toolInstructions?: Record<string, ToolInstructionConfig>
+): string {
+  const entries = Object.entries(toolInstructions ?? {}).filter(([, config]) =>
+    Object.values(config).some(
+      (value) => typeof value === "string" && value.trim().length > 0
+    )
+  );
+
+  if (entries.length === 0) {
+    return "none";
+  }
+
+  return entries.map(([toolKey]) => toolKey).join(", ");
+}
+
 /**
- * Generate a complete MCP server from tool definitions
+ * Generate a complete MCP server from tool definitions.
  */
 export function generateMcpServer(
   tools: McpToolDefinition[],
@@ -22,32 +101,41 @@ export function generateMcpServer(
   files["package.json"] = generatePackageJson(options);
   files["tsconfig.json"] = generateTsConfig();
   files["src/index.ts"] = generateServerEntry(tools, options, securitySchemes);
-  files["src/transport.ts"] = generateTransport();
-  files[".env.example"] = generateEnvExample(tools, securitySchemes);
-  files["README.md"] = generateReadme(options);
+  files["src/transport.ts"] = generateTransport(options);
+  files[".env.example"] = generateEnvExample(tools, securitySchemes, options);
+  files["README.md"] = generateReadme(options, tools, securitySchemes);
 
   return files;
 }
 
 function generatePackageJson(options: GeneratorOptions): string {
+  const isHostedWorker = isHostedWorkerMode(options);
+
   const pkg = {
     name: options.name,
     version: options.version || "1.0.0",
-    description: `MCP Server generated from OpenAPI spec`,
+    description: `MCP runtime generated from OpenAPI`,
     type: "module",
     main: "build/index.js",
-    scripts: {
-      build: "tsc",
-      start: "node build/index.js",
-      "start:http": "node build/index.js --transport=streamable-http",
-      dev: "tsc --watch",
-    },
+    scripts: isHostedWorker
+      ? {
+          build: "tsc",
+          start: "node build/index.js --transport=streamable-http",
+          "start:http": "node build/index.js --transport=streamable-http",
+          dev: "tsc --watch",
+        }
+      : {
+          build: "tsc",
+          start: "node build/index.js",
+          "start:http": "node build/index.js --transport=streamable-http",
+          dev: "tsc --watch",
+        },
     dependencies: {
       "@modelcontextprotocol/sdk": "^1.10.0",
+      "@hono/node-server": "^1.14.1",
       axios: "^1.9.0",
       dotenv: "^16.4.5",
       hono: "^4.7.7",
-      "@hono/node-server": "^1.14.1",
       ...(options.emcyEnabled
         ? {
             "@emcy/sdk": options.localSdkPath
@@ -96,9 +184,15 @@ function generateServerEntry(
   options: GeneratorOptions,
   securitySchemes: Record<string, SecurityScheme>
 ): string {
+  const runtimeMode = getRuntimeMode(options);
+  const hasHostedWorker = runtimeMode === "emcy_hosted_worker";
+  const configuredHeaders = options.upstreamHeaders ?? [];
+  const hostedOauthConfig = options.hostedOauthConfig;
+  const toolInstructions = options.toolInstructions;
+
   const toolDefinitions = tools
-    .map((tool) => {
-      return `  ["${tool.name}", {
+    .map(
+      (tool) => `  ["${tool.name}", {
     name: "${tool.name}",
     description: ${JSON.stringify(tool.description)},
     inputSchema: ${JSON.stringify(tool.inputSchema)},
@@ -111,27 +205,26 @@ function generateServerEntry(
         : "undefined"
     },
     securitySchemes: ${JSON.stringify(tool.securitySchemes)},
-  }]`;
-    })
+    requiredScopes: ${JSON.stringify(tool.requiredScopes)},
+  }]`
+    )
     .join(",\n");
 
   const emcyImport = options.emcyEnabled
-    ? `import { EmcyTelemetry } from '@emcy/sdk';\n`
+    ? `import { EmcyTelemetry } from "@emcy/sdk";\n`
     : "";
 
   const emcyInit = options.emcyEnabled
     ? `
-// Initialize Emcy telemetry if API key is provided
 const emcy = process.env.EMCY_API_KEY
   ? new EmcyTelemetry({
       apiKey: process.env.EMCY_API_KEY,
       endpoint: process.env.EMCY_TELEMETRY_URL,
       mcpServerId: process.env.EMCY_MCP_SERVER_ID,
-      debug: process.env.EMCY_DEBUG === 'true',
+      debug: process.env.EMCY_DEBUG === "true",
     })
   : null;
 
-// Set server info for telemetry metadata
 if (emcy) {
   emcy.setServerInfo(SERVER_NAME, SERVER_VERSION);
 }
@@ -140,40 +233,77 @@ if (emcy) {
 
   const emcyTrace = options.emcyEnabled
     ? `
-    // Wrap with Emcy telemetry if enabled
     if (emcy) {
-      return emcy.trace(toolName, async () => executeRequest(toolDefinition, toolArgs ?? {}));
+      return emcy.trace(toolName, async () =>
+        executeRequest(toolDefinition, toolArgs ?? {}, getUpstreamAccessToken?.())
+      );
     }
 `
     : "";
 
+  const hostedWorkerConfig = hasHostedWorker
+    ? `
+const HOSTED_WORKER_CONFIG = {
+  workerSecretHeader: process.env.EMCY_WORKER_SECRET_HEADER || ${JSON.stringify(
+    options.hostedWorkerConfig?.workerSecretHeader || "x-emcy-worker-secret"
+  )},
+  workerSecretEnvVar: process.env.EMCY_WORKER_SECRET_ENV_VAR || ${JSON.stringify(
+    options.hostedWorkerConfig?.workerSecretEnvVar || "EMCY_WORKER_SHARED_SECRET"
+  )},
+  upstreamAccessTokenHeader: process.env.EMCY_UPSTREAM_ACCESS_TOKEN_HEADER || ${JSON.stringify(
+    options.hostedWorkerConfig?.upstreamAccessTokenHeader ||
+      "x-emcy-upstream-access-token"
+  )},
+};
+`
+    : "";
+
+  const upstreamHeaderConfig = `
+type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";
+const RUNTIME_MODE: RuntimeMode = ${JSON.stringify(runtimeMode)};
+const UPSTREAM_HEADERS: RuntimeUpstreamHeader[] = ${JSON.stringify(configuredHeaders, null, 2)};
+`;
+
+  const hasPrompts = options.prompts && options.prompts.length > 0;
+  const promptsImport = hasPrompts
+    ? `,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  type GetPromptResult`
+    : "";
+
+  const promptDefinitions = hasPrompts
+    ? generatePromptDefinitions(options.prompts!)
+    : "";
+
+  const promptsCapability = hasPrompts ? ", prompts: {}" : "";
+  const promptHandlers = hasPrompts ? generatePromptHandlers() : "";
+
   return `#!/usr/bin/env node
 /**
- * MCP Server: ${options.name}
- * Generated by Emcy OpenAPI-to-MCP Generator
+ * MCP Runtime: ${options.name}
+ * Generated by Emcy OpenAPI-to-MCP
  */
 
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
 dotenv.config();
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  type Tool,
+  type CallToolRequest,
   type CallToolResult,
-  type CallToolRequest
+  type Tool${promptsImport}
 } from "@modelcontextprotocol/sdk/types.js";
-import axios, { type AxiosRequestConfig, type AxiosError } from 'axios';
+import axios, { type AxiosRequestConfig } from "axios";
 import { setupStreamableHttpServer } from "./transport.js";
 ${emcyImport}
-// Configuration
 export const SERVER_NAME = "${options.name}";
 export const SERVER_VERSION = "${options.version || "1.0.0"}";
 export const API_BASE_URL = process.env.API_BASE_URL || "${options.baseUrl}";
 
-// Tool definition interface
-interface McpToolDefinition {
+interface RuntimeToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
@@ -182,266 +312,545 @@ interface McpToolDefinition {
   parameters: { name: string; in: string; required: boolean }[];
   requestBodyContentType?: string;
   securitySchemes: string[];
+  requiredScopes: string[];
 }
 
-// Security schemes
+interface RuntimeUpstreamHeader {
+  name: string;
+  envVar: string;
+  valuePrefix?: string;
+  defaultValue?: string;
+}
+
+interface RuntimeHostedOauthConfig {
+  provider?: string;
+  authorizationServerUrl?: string;
+  clientId?: string;
+  resource?: string;
+  scopes?: string[];
+}
+
+interface RuntimeToolInstruction {
+  customInstructions?: string;
+  exampleUsage?: string;
+  whenToUse?: string;
+  whenNotToUse?: string;
+}
+
 const securitySchemes: Record<string, unknown> = ${JSON.stringify(
     securitySchemes,
     null,
     2
   )};
-${emcyInit}
-// Tool definitions
-const toolDefinitionMap: Map<string, McpToolDefinition> = new Map([
+${upstreamHeaderConfig}${hostedWorkerConfig}${emcyInit}
+const HOSTED_OAUTH_CONFIG: RuntimeHostedOauthConfig | null = ${JSON.stringify(hostedOauthConfig ?? null, null, 2)};
+const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = ${JSON.stringify(toolInstructions ?? {}, null, 2)};
+const toolDefinitionMap: Map<string, RuntimeToolDefinition> = new Map([
 ${toolDefinitions}
 ]);
+${promptDefinitions}
 
-// Create MCP server
-const server = new Server(
-  { name: SERVER_NAME, version: SERVER_VERSION },
-  { capabilities: { tools: {} } }
-);
+export function createServer(getUpstreamAccessToken?: () => string | undefined): Server {
+  const server = new Server(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    { capabilities: { tools: {}${promptsCapability} } }
+  );
 
-// List tools handler
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  const toolsForClient: Tool[] = Array.from(toolDefinitionMap.values()).map(def => ({
-    name: def.name,
-    description: def.description,
-    inputSchema: def.inputSchema as Tool['inputSchema'],
-  }));
-  return { tools: toolsForClient };
-});
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const toolsForClient: Tool[] = Array.from(toolDefinitionMap.values()).map((def) => ({
+      name: def.name,
+      description: def.description,
+      inputSchema: def.inputSchema as Tool["inputSchema"],
+    }));
+    return { tools: toolsForClient };
+  });
 
-// Call tool handler
-server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest): Promise<CallToolResult> => {
-  const { name: toolName, arguments: toolArgs } = request.params;
-  const toolDefinition = toolDefinitionMap.get(toolName);
-  
-  if (!toolDefinition) {
-    return { content: [{ type: "text", text: \`Error: Unknown tool: \${toolName}\` }] };
-  }
-  
-  try {
+  server.setRequestHandler(
+    CallToolRequestSchema,
+    async (request: CallToolRequest): Promise<CallToolResult> => {
+      const { name: toolName, arguments: toolArgs } = request.params;
+      const toolDefinition = toolDefinitionMap.get(toolName);
+
+      if (!toolDefinition) {
+        return {
+          content: [{ type: "text", text: \`Error: Unknown tool: \${toolName}\` }],
+          isError: true,
+        };
+      }
+
+      try {
 ${emcyTrace}
-    return await executeRequest(toolDefinition, toolArgs ?? {});
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { content: [{ type: "text", text: \`Error: \${message}\` }] };
-  }
-});
+        return await executeRequest(
+          toolDefinition,
+          toolArgs ?? {},
+          getUpstreamAccessToken?.()
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text", text: \`Error: \${message}\` }],
+          isError: true,
+        };
+      }
+    }
+  );
+${promptHandlers}
+  return server;
+}
 
-// Execute API request
 async function executeRequest(
-  def: McpToolDefinition,
-  args: Record<string, unknown>
+  def: RuntimeToolDefinition,
+  args: Record<string, unknown>,
+  upstreamAccessToken?: string
 ): Promise<CallToolResult> {
   let url = def.pathTemplate;
   const queryParams: Record<string, unknown> = {};
-  const headers: Record<string, string> = { 'Accept': 'application/json' };
-  
-  // Apply path and query parameters
+  const headers: Record<string, string> = { accept: "application/json" };
+
   for (const param of def.parameters) {
     const value = args[param.name];
-    if (value !== undefined && value !== null) {
-      if (param.in === 'path') {
-        url = url.replace(\`{\${param.name}}\`, encodeURIComponent(String(value)));
-      } else if (param.in === 'query') {
-        queryParams[param.name] = value;
-      } else if (param.in === 'header') {
-        headers[param.name.toLowerCase()] = String(value);
-      }
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    if (param.in === "path") {
+      url = url.replace(\`{\${param.name}}\`, encodeURIComponent(String(value)));
+    } else if (param.in === "query") {
+      queryParams[param.name] = value;
+    } else if (param.in === "header") {
+      headers[param.name.toLowerCase()] = String(value);
     }
   }
-  
-  // Apply security (API key, Bearer token)
+
   applySecurityHeaders(headers, def.securitySchemes);
-  
-  // Build request config
+  applyConfiguredUpstreamHeaders(headers);
+  applyHostedWorkerAccessToken(headers, upstreamAccessToken);
+
   const config: AxiosRequestConfig = {
     method: def.method,
     url: \`\${API_BASE_URL}\${url}\`,
     params: queryParams,
     headers,
   };
-  
-  // Add request body if present
+
   if (def.requestBodyContentType && args.requestBody !== undefined) {
     config.data = args.requestBody;
-    headers['content-type'] = def.requestBodyContentType;
+    headers["content-type"] = def.requestBodyContentType;
   }
-  
-  console.error(\`Executing: \${def.method.toUpperCase()} \${config.url}\`);
-  
+
+  if (def.requestBodyContentType && !config.data) {
+    const paramNames = new Set(def.parameters.map((p) => p.name));
+    const bodyArgs: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(args)) {
+      if (key !== "requestBody" && !paramNames.has(key)) {
+        bodyArgs[key] = value;
+      }
+    }
+
+    if (Object.keys(bodyArgs).length > 0) {
+      config.data = bodyArgs;
+      headers["content-type"] = def.requestBodyContentType;
+    }
+  }
+
   const response = await axios(config);
-  
-  let responseText: string;
-  if (typeof response.data === 'object') {
-    responseText = JSON.stringify(response.data, null, 2);
-  } else {
-    responseText = String(response.data ?? '');
-  }
-  
+  const responseText =
+    typeof response.data === "object"
+      ? JSON.stringify(response.data, null, 2)
+      : String(response.data ?? "");
+
   return {
-    content: [{ type: "text", text: \`Status: \${response.status}\\n\\n\${responseText}\` }]
+    content: [{ type: "text", text: \`Status: \${response.status}\\n\\n\${responseText}\` }],
   };
 }
 
-// Apply security headers based on environment variables
-function applySecurityHeaders(headers: Record<string, string>, schemeNames: string[]) {
+function applySecurityHeaders(headers: Record<string, string>, schemeNames: string[]): void {
+  if (RUNTIME_MODE !== "standalone_headers") {
+    return;
+  }
+
   for (const schemeName of schemeNames) {
     const scheme = securitySchemes[schemeName] as Record<string, unknown> | undefined;
-    if (!scheme) continue;
-    
-    const envKey = schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
-    
-    if (scheme.type === 'apiKey') {
-      const apiKey = process.env[\`API_KEY_\${envKey}\`];
-      if (apiKey && scheme.in === 'header' && typeof scheme.name === 'string') {
+    if (!scheme) {
+      continue;
+    }
+
+    const resolvedEnvKey = schemeName.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+
+    if (scheme.type === "apiKey") {
+      const apiKey = process.env[\`API_KEY_\${resolvedEnvKey}\`];
+      if (apiKey && scheme.in === "header" && typeof scheme.name === "string") {
         headers[scheme.name.toLowerCase()] = apiKey;
       }
-    } else if (scheme.type === 'http' && scheme.scheme === 'bearer') {
-      const token = process.env[\`BEARER_TOKEN_\${envKey}\`];
-      if (token) {
-        headers['authorization'] = \`Bearer \${token}\`;
+      continue;
+    }
+
+    if (scheme.type === "http" && scheme.scheme === "bearer") {
+      const bearerToken = process.env[\`BEARER_TOKEN_\${resolvedEnvKey}\`];
+      if (bearerToken) {
+        headers.authorization = \`Bearer \${bearerToken}\`;
       }
     }
   }
 }
 
-// Main
-async function main() {
-  const args = process.argv.slice(2);
-  const useHttp = args.includes('--transport=streamable-http');
-  
-  if (useHttp) {
-    const port = parseInt(process.env.PORT || '3000', 10);
-    await setupStreamableHttpServer(server, port);
-  } else {
-    // Stdio transport for Claude Desktop, etc.
-    const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error(\`\${SERVER_NAME} running on stdio\`);
+function applyConfiguredUpstreamHeaders(headers: Record<string, string>): void {
+  for (const header of UPSTREAM_HEADERS) {
+    const rawValue = process.env[header.envVar] || header.defaultValue;
+    if (!rawValue) {
+      continue;
+    }
+
+    headers[header.name.toLowerCase()] = header.valuePrefix
+      ? \`\${header.valuePrefix} \${rawValue}\`
+      : rawValue;
   }
+}
+
+function applyHostedWorkerAccessToken(
+  headers: Record<string, string>,
+  upstreamAccessToken?: string
+): void {
+  if (RUNTIME_MODE !== "emcy_hosted_worker" || !upstreamAccessToken) {
+    return;
+  }
+
+  headers.authorization = \`Bearer \${upstreamAccessToken}\`;
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const useHttp = args.includes("--transport=streamable-http");
+  const port = parseInt(process.env.PORT || "3000", 10);
+
+  if (RUNTIME_MODE === "emcy_hosted_worker" || useHttp) {
+    await setupStreamableHttpServer(port${hasHostedWorker ? ", HOSTED_WORKER_CONFIG" : ""});
+    return;
+  }
+
+  const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error(\`\${SERVER_NAME} running on stdio\`);
 }
 
 main().catch(console.error);
 `;
 }
 
-function generateTransport(): string {
+function generatePromptDefinitions(prompts: PromptDefinition[]): string {
+  return `
+
+interface PromptDef {
+  name: string;
+  title?: string;
+  description: string;
+  content: string;
+  arguments?: { name: string; description: string; required: boolean }[];
+}
+
+const promptDefinitionMap: Map<string, PromptDef> = new Map([
+${prompts
+  .map(
+    (prompt) => `  ["${prompt.name}", {
+    name: "${prompt.name}",
+    ${prompt.title ? `title: ${JSON.stringify(prompt.title)},` : ""}
+    description: ${JSON.stringify(prompt.description)},
+    content: ${JSON.stringify(prompt.content)},
+    ${prompt.arguments ? `arguments: ${JSON.stringify(prompt.arguments)},` : ""}
+  }]`
+  )
+  .join(",\n")}
+]);`;
+}
+
+function generatePromptHandlers(): string {
+  return `
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    const promptsForClient = Array.from(promptDefinitionMap.values()).map((def) => ({
+      name: def.name,
+      title: def.title,
+      description: def.description,
+      arguments: def.arguments,
+    }));
+
+    return { prompts: promptsForClient };
+  });
+
+  server.setRequestHandler(
+    GetPromptRequestSchema,
+    async (request): Promise<GetPromptResult> => {
+      const { name, arguments: args } = request.params;
+      const promptDef = promptDefinitionMap.get(name);
+
+      if (!promptDef) {
+        throw new Error(\`Unknown prompt: \${name}\`);
+      }
+
+      let content = promptDef.content;
+      if (args && promptDef.arguments) {
+        for (const argDef of promptDef.arguments) {
+          const value = args[argDef.name];
+          if (value !== undefined) {
+            content = content.replace(
+              new RegExp(\`{{\\\\s*\${argDef.name}\\\\s*}}\`, "g"),
+              String(value)
+            );
+          } else if (argDef.required) {
+            throw new Error(\`Missing required argument: \${argDef.name}\`);
+          }
+        }
+      }
+
+      return {
+        messages: [
+          {
+            role: "user",
+            content: { type: "text", text: content },
+          },
+        ],
+      };
+    }
+  );`;
+}
+
+function generateTransport(options: GeneratorOptions): string {
+  const runtimeMode = getRuntimeMode(options);
+  const hasHostedWorker = runtimeMode === "emcy_hosted_worker";
+
+  const hostedWorkerTypes = hasHostedWorker
+    ? `
+interface HostedWorkerRuntimeConfig {
+  workerSecretHeader: string;
+  workerSecretEnvVar: string;
+  upstreamAccessTokenHeader: string;
+}
+
+let hostedWorkerRuntimeConfig: HostedWorkerRuntimeConfig | undefined;
+
+function getHostedWorkerConfig(): HostedWorkerRuntimeConfig {
+  if (!hostedWorkerRuntimeConfig) {
+    throw new Error("Hosted worker runtime config was not initialized.");
+  }
+
+  return hostedWorkerRuntimeConfig;
+}
+`
+    : "";
+
+  const requestTokenResolver = hasHostedWorker
+    ? `
+function getRequestAccessToken(c: any): string | undefined {
+  const forwarded = c.req.header(getHostedWorkerConfig().upstreamAccessTokenHeader);
+  if (forwarded) {
+    return forwarded;
+  }
+
+  const authHeader = c.req.header("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.substring(7);
+  }
+
+  return undefined;
+}
+`
+    : `
+function getRequestAccessToken(_c: any): string | undefined {
+  return undefined;
+}
+`;
+
+  const hostedWorkerMiddleware = hasHostedWorker
+    ? `
+  app.use("/mcp", async (c, next) => {
+    const workerConfig = getHostedWorkerConfig();
+    const expectedSecret = process.env[workerConfig.workerSecretEnvVar];
+
+    if (!expectedSecret) {
+      return c.json(
+        {
+          error: "server_error",
+          error_description: \`Missing worker secret env var: \${workerConfig.workerSecretEnvVar}\`,
+        },
+        500
+      );
+    }
+
+    const providedSecret = c.req.header(workerConfig.workerSecretHeader);
+    if (providedSecret !== expectedSecret) {
+      return c.json(
+        {
+          error: "unauthorized",
+          error_description: "Internal worker secret is missing or invalid.",
+        },
+        401
+      );
+    }
+
+    return next();
+  });
+`
+    : "";
+
+  const startupDetails = hasHostedWorker
+    ? `
+    console.error(\`║  Mode:   Emcy hosted worker                                  ║\`);
+    console.error(\`║  Header: \${getHostedWorkerConfig().workerSecretHeader.padEnd(53)} ║\`);
+    console.error(\`║  Clients: Emcy should call this worker, not end users.      ║\`);
+`
+    : `
+    console.error(\`║  Mode:   Standalone MCP server                               ║\`);
+    console.error(\`║  HTTP:   http://localhost:\${info.port}/mcp\`.padEnd(64) + \`║\`);
+    console.error(\`║  Stdio:  npm start\`.padEnd(64) + \`║\`);
+`;
+
   return `/**
- * HTTP Transport for MCP
- * Uses Streamable HTTP transport (MCP specification 2025-03-26)
+ * Streamable HTTP transport for the generated MCP runtime.
  */
 
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { serve } from '@hono/node-server';
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SERVER_NAME, SERVER_VERSION } from './index.js';
-
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { serve } from "@hono/node-server";
+import { createServer, SERVER_NAME, SERVER_VERSION } from "./index.js";
+${hostedWorkerTypes}
 const { WebStandardStreamableHTTPServerTransport } = await import(
   "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 );
 
 const transports: Map<string, InstanceType<typeof WebStandardStreamableHTTPServerTransport>> = new Map();
+const sessionTokens: Map<string, { current: string }> = new Map();
+${requestTokenResolver}
 
-export async function setupStreamableHttpServer(mcpServer: Server, port = 3000) {
-  const app = new Hono();
-  
-  // CORS configuration for browser/client access
-  app.use('*', cors({
-    origin: '*',
-    allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Accept', 'mcp-session-id', 'Last-Event-ID'],
-    exposeHeaders: ['mcp-session-id'],
-  }));
-  
-  // Health check endpoint
-  app.get('/health', (c) => {
-    return c.json({ 
-      status: 'OK', 
-      server: SERVER_NAME, 
+export async function setupStreamableHttpServer(
+  port = 3000${hasHostedWorker ? ", hostedWorkerConfig?: HostedWorkerRuntimeConfig" : ""}
+): Promise<Hono> {
+${hasHostedWorker ? "  hostedWorkerRuntimeConfig = hostedWorkerConfig;\n" : ""}  const app = new Hono();
+
+  app.use(
+    "*",
+    cors({
+      origin: "*",
+      allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+      allowHeaders: [
+        "Content-Type",
+        "Accept",
+        "Authorization",
+        "mcp-session-id",
+        "Last-Event-ID",
+        "x-emcy-worker-secret",
+        "x-emcy-upstream-access-token",
+      ],
+      exposeHeaders: ["mcp-session-id"],
+    })
+  );
+${hostedWorkerMiddleware}
+  app.get("/health", (c) => {
+    return c.json({
+      status: "OK",
+      server: SERVER_NAME,
       version: SERVER_VERSION,
       mcp: {
-        transport: 'streamable-http',
+        transport: "streamable-http",
         endpoints: {
-          mcp: '/mcp',
-          health: '/health'
-        }
-      }
+          mcp: "/mcp",
+          health: "/health",
+        },
+${hasHostedWorker ? `        hosted_worker: {
+          enabled: true,
+          worker_secret_header: getHostedWorkerConfig().workerSecretHeader,
+          upstream_access_token_header: getHostedWorkerConfig().upstreamAccessTokenHeader,
+        },` : `        public_server: true,`}
+      },
     });
   });
-  
-  // Streamable HTTP Transport (MCP spec 2025-03-26)
-  // Supports ChatGPT, Cursor, and other modern MCP clients
+
   app.all("/mcp", async (c) => {
-    const sessionId = c.req.header('mcp-session-id');
-    
-    // Existing session
+    const sessionId = c.req.header("mcp-session-id");
+
     if (sessionId && transports.has(sessionId)) {
+      const tokenRef = sessionTokens.get(sessionId);
+      if (tokenRef) {
+        const requestToken = getRequestAccessToken(c);
+        if (requestToken) {
+          tokenRef.current = requestToken;
+        }
+      }
+
       return transports.get(sessionId)!.handleRequest(c.req.raw);
     }
-    
-    // New session - create transport
+
     if (!sessionId) {
+      const sessionTokenRef = { current: "" };
+      const requestToken = getRequestAccessToken(c);
+      if (requestToken) {
+        sessionTokenRef.current = requestToken;
+      }
+
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
         onsessioninitialized: (newSessionId: string) => {
           transports.set(newSessionId, transport);
+          sessionTokens.set(newSessionId, sessionTokenRef);
           console.error(\`New MCP session: \${newSessionId}\`);
-        }
+        },
       });
-      
-      transport.onerror = (err: Error) => console.error('Transport error:', err);
+
+      transport.onerror = (err: Error) => console.error("Transport error:", err);
       transport.onclose = () => {
         const sid = transport.sessionId;
-        if (sid) {
-          transports.delete(sid);
-          console.error(\`Session closed: \${sid}\`);
+        if (!sid) {
+          return;
         }
+
+        transports.delete(sid);
+        sessionTokens.delete(sid);
+        console.error(\`Session closed: \${sid}\`);
       };
-      
-      await mcpServer.connect(transport);
+
+      const sessionServer = createServer(
+        () => sessionTokenRef.current || undefined
+      );
+      await sessionServer.connect(transport);
       return transport.handleRequest(c.req.raw);
     }
-    
-    // Session not found
-    return c.json({ 
-      error: 'Session not found',
-      message: 'The specified session ID does not exist. Start a new session by omitting the mcp-session-id header.'
-    }, 404);
+
+    return c.json(
+      {
+        error: "Session not found",
+        message:
+          "The specified session ID does not exist. Start a new session by omitting the mcp-session-id header.",
+      },
+      404
+    );
   });
-  
-  // Legacy /sse endpoint - redirect to /mcp with guidance
+
   app.get("/sse", (c) => {
-    return c.json({
-      error: 'SSE transport deprecated',
-      message: 'The SSE transport was deprecated in MCP specification 2025-03-26. Please use the Streamable HTTP transport at /mcp instead.',
-      redirect: '/mcp'
-    }, 410);
+    return c.json(
+      {
+        error: "SSE transport deprecated",
+        message:
+          "The SSE transport was deprecated in MCP specification 2025-03-26. Please use /mcp instead.",
+        redirect: "/mcp",
+      },
+      410
+    );
   });
-  
+
   serve({ fetch: app.fetch, port }, (info) => {
-    console.error('');
-    console.error(\`╔═══════════════════════════════════════════════════════════════╗\`);
-    console.error(\`║  MCP Server: \${SERVER_NAME.padEnd(46)} ║\`);
-    console.error(\`╠═══════════════════════════════════════════════════════════════╣\`);
+    console.error("");
+    console.error("╔═══════════════════════════════════════════════════════════════╗");
+    console.error(\`║  MCP Runtime: \${SERVER_NAME.padEnd(45)} ║\`);
+    console.error("╠═══════════════════════════════════════════════════════════════╣");
     console.error(\`║  Status: Running                                              ║\`);
     console.error(\`║  Port:   \${String(info.port).padEnd(53)} ║\`);
-    console.error(\`╠═══════════════════════════════════════════════════════════════╣\`);
-    console.error(\`║  Endpoints:                                                   ║\`);
-    console.error(\`║    MCP:    http://localhost:\${info.port}/mcp\`.padEnd(64) + \`║\`);
-    console.error(\`║    Health: http://localhost:\${info.port}/health\`.padEnd(64) + \`║\`);
-    console.error(\`╠═══════════════════════════════════════════════════════════════╣\`);
-    console.error(\`║  For AI Clients:                                              ║\`);
-    console.error(\`║    ChatGPT/Cursor URL: http://localhost:\${info.port}/mcp\`.padEnd(64) + \`║\`);
-    console.error(\`║    Claude Desktop: Use stdio transport (npm start)            ║\`);
-    console.error(\`╚═══════════════════════════════════════════════════════════════╝\`);
-    console.error('');
+    console.error("╠═══════════════════════════════════════════════════════════════╣");
+${startupDetails}
+    console.error("╚═══════════════════════════════════════════════════════════════╝");
+    console.error("");
   });
-  
+
   return app;
 }
 `;
@@ -449,188 +858,214 @@ export async function setupStreamableHttpServer(mcpServer: Server, port = 3000) 
 
 function generateEnvExample(
   tools: McpToolDefinition[],
-  securitySchemes: Record<string, SecurityScheme>
+  securitySchemes: Record<string, SecurityScheme>,
+  options: GeneratorOptions
 ): string {
+  const runtimeMode = getRuntimeMode(options);
   const lines = [
     "# API Configuration",
-    "API_BASE_URL=http://localhost:5001",
+    `API_BASE_URL=${options.baseUrl}`,
     "",
     "# Emcy Telemetry (optional)",
-    "# Set these to enable telemetry to Emcy platform",
     "# EMCY_API_KEY=your-api-key-from-emcy-dashboard",
     "# EMCY_TELEMETRY_URL=http://localhost:5140/api/v1/telemetry",
     "# EMCY_MCP_SERVER_ID=mcp_xxxxxxxxxxxx",
     "# EMCY_DEBUG=false",
     "",
-    "# Server Port (for HTTP transport)",
+    "# Server Port",
     "PORT=3000",
   ];
 
-  // Collect unique security schemes used by tools
-  const usedSchemes = new Set<string>();
-  for (const tool of tools) {
-    for (const scheme of tool.securitySchemes) {
-      usedSchemes.add(scheme);
+  if (runtimeMode === "emcy_hosted_worker") {
+    lines.push(
+      "",
+      "# Hosted worker configuration",
+      "EMCY_WORKER_SHARED_SECRET=change-me",
+      "# EMCY_WORKER_SECRET_HEADER=x-emcy-worker-secret",
+      "# EMCY_UPSTREAM_ACCESS_TOKEN_HEADER=x-emcy-upstream-access-token"
+    );
+    if (options.hostedOauthConfig?.authorizationServerUrl) {
+      lines.push(
+        "",
+        "# Hosted OAuth reference",
+        `# Provider: ${options.hostedOauthConfig.provider ?? "manual"}`,
+        `# Authorization server: ${options.hostedOauthConfig.authorizationServerUrl}`,
+        `# Client ID: ${options.hostedOauthConfig.clientId ?? ""}`,
+        `# Resource: ${options.hostedOauthConfig.resource ?? ""}`,
+        `# Scopes: ${(options.hostedOauthConfig.scopes ?? []).join(" ")}`
+      );
     }
   }
 
-  if (usedSchemes.size > 0) {
-    lines.push("", "# Security Credentials");
+  const configuredHeaders = options.upstreamHeaders ?? [];
+  if (configuredHeaders.length > 0) {
+    lines.push("", "# Configured upstream headers");
+    const seenEnvVars = new Set<string>();
+    for (const header of configuredHeaders) {
+      if (seenEnvVars.has(header.envVar)) {
+        continue;
+      }
 
+      seenEnvVars.add(header.envVar);
+      if (header.valuePrefix) {
+        lines.push(
+          `# ${header.name} will be sent as "${header.valuePrefix} <value>"`
+        );
+      } else {
+        lines.push(`# ${header.name} will be sent as-is`);
+      }
+      lines.push(`${header.envVar}=${header.defaultValue ?? ""}`);
+    }
+  }
+
+  if (runtimeMode === "standalone_headers") {
+    const usedSchemes = new Set<string>();
+    for (const tool of tools) {
+      for (const scheme of tool.securitySchemes) {
+        usedSchemes.add(scheme);
+      }
+    }
+
+    const schemeLines: string[] = [];
     for (const schemeName of usedSchemes) {
       const scheme = securitySchemes[schemeName];
-      const envKey = schemeName.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+      const envKey = toEnvKey(schemeName);
 
-      if (scheme?.type === "apiKey") {
-        lines.push(`API_KEY_${envKey}=your-api-key`);
+      if (scheme?.type === "apiKey" && scheme.in === "header") {
+        schemeLines.push(`API_KEY_${envKey}=`);
       } else if (scheme?.type === "http" && scheme.scheme === "bearer") {
-        lines.push(`BEARER_TOKEN_${envKey}=your-bearer-token`);
-      } else if (scheme?.type === "oauth2") {
-        lines.push(`OAUTH_CLIENT_ID_${envKey}=your-client-id`);
-        lines.push(`OAUTH_CLIENT_SECRET_${envKey}=your-client-secret`);
+        schemeLines.push(`BEARER_TOKEN_${envKey}=`);
       }
+    }
+
+    if (schemeLines.length > 0) {
+      lines.push("", "# OpenAPI-derived upstream credentials");
+      lines.push(...schemeLines);
     }
   }
 
   return lines.join("\n");
 }
 
-function generateReadme(options: GeneratorOptions): string {
-  return `# ${options.name}
+function generateReadme(
+  options: GeneratorOptions,
+  tools: McpToolDefinition[],
+  securitySchemes: Record<string, SecurityScheme>
+): string {
+  const runtimeMode = getRuntimeMode(options);
+  const configuredHeaders = options.upstreamHeaders ?? [];
+  const hostedOauthSummary = formatHostedOauthDescription(options.hostedOauthConfig);
+  const toolInstructionSummary = formatToolInstructionSummary(options.toolInstructions);
+  const hasPrompts = options.prompts && options.prompts.length > 0;
+  const promptSection = hasPrompts
+    ? `
+## Context Prompts
 
-MCP Server generated from OpenAPI specification by [Emcy](https://emcy.dev).
+This runtime includes ${options.prompts!.length} pre-defined prompt(s):
+
+${options.prompts!.map((prompt) => `- **${prompt.name}**: ${prompt.description}`).join("\n")}
+`
+    : "";
+
+  if (runtimeMode === "emcy_hosted_worker") {
+    return `# ${options.name}
+
+Hosted worker runtime generated from an OpenAPI specification by [Emcy](https://emcy.ai).
+${promptSection}
+## Runtime Mode
+
+This runtime is intended to run behind Emcy-hosted MCP auth.
+
+- Emcy owns the public MCP URL and OAuth flow
+- Emcy forwards a short-lived downstream access token to this worker
+- Hosted OAuth config: ${hostedOauthSummary}
+- Tool instructions configured for: ${toolInstructionSummary}
+- MCP clients should connect to Emcy, not directly to this worker
 
 ## Quick Start
 
 \`\`\`bash
-# Install dependencies
 npm install
-
-# Build
 npm run build
-
-# Run with HTTP transport (for ChatGPT, Cursor, web clients)
 npm run start:http
-
-# Or run with stdio transport (for Claude Desktop)
-npm start
 \`\`\`
 
 ## Configuration
 
 Copy \`.env.example\` to \`.env\` and configure:
 
-- \`API_BASE_URL\`: Base URL of the API (default: ${options.baseUrl})
-- \`PORT\`: Server port for HTTP transport (default: 3000)
-- Security credentials as needed
+- \`API_BASE_URL\`: Base URL of the downstream API
+- \`PORT\`: HTTP port for the worker runtime
+- \`EMCY_WORKER_SHARED_SECRET\`: Shared secret Emcy uses to call the worker
 
----
+## Local Validation
 
-## 🤖 AI Client Configuration
-
-### ChatGPT (OpenAI)
-
-ChatGPT supports MCP servers via Developer Mode. Use the Streamable HTTP transport:
-
-1. Start the server with HTTP transport:
-   \`\`\`bash
-   npm run start:http
-   \`\`\`
-
-2. In ChatGPT Developer Mode, add your MCP server:
-   - **URL**: \`http://your-server-url:3000/mcp\`
-   - For local development, you'll need to expose via a tunnel (ngrok, cloudflare tunnel, etc.)
-
-### Cursor IDE
-
-Cursor supports both HTTP and stdio transports:
-
-**Option A: HTTP Transport (Recommended)**
-
-Add to your project's \`.cursor/mcp.json\`:
-
-\`\`\`json
-{
-  "mcpServers": {
-    "${options.name}": {
-      "url": "http://localhost:3000/mcp"
-    }
+1. Run the worker with \`npm run start:http\`
+2. Configure Emcy to call this worker
+3. Let Emcy host the public MCP server, OAuth flow, and client registration
+4. Validate tool calls through Emcy
+`;
   }
-}
-\`\`\`
 
-Then start the server: \`npm run start:http\`
+  const derivedSecuritySupport = Array.from(
+    new Set(
+      tools.flatMap((tool) => tool.securitySchemes).map((schemeName) => {
+        const scheme = securitySchemes[schemeName];
+        if (scheme?.type === "apiKey") {
+          return `${schemeName} (API key)`;
+        }
+        if (scheme?.type === "http" && scheme.scheme === "bearer") {
+          return `${schemeName} (Bearer token)`;
+        }
+        return null;
+      })
+    )
+  ).filter(Boolean);
 
-**Option B: Stdio Transport**
+  return `# ${options.name}
 
-Add to your project's \`.cursor/mcp.json\`:
+MCP server generated from an OpenAPI specification by [Emcy](https://emcy.ai).
+${promptSection}
+## Runtime Mode
 
-\`\`\`json
-{
-  "mcpServers": {
-    "${options.name}": {
-      "command": "node",
-      "args": ["<absolute-path-to>/build/index.js"]
-    }
-  }
-}
-\`\`\`
+\`${runtimeMode}\`
 
-Restart Cursor after adding the configuration.
+${runtimeMode === "standalone_headers"
+  ? `This server runs as a standalone MCP endpoint and injects static headers into upstream API calls.
 
-### Claude Desktop
+- Configured headers: ${formatHeaderDescription(configuredHeaders)}
+- OpenAPI header security schemes: ${derivedSecuritySupport.length > 0 ? derivedSecuritySupport.join(", ") : "none detected"}`
+  : `This server runs as a standalone MCP endpoint with no built-in upstream authentication logic.`}
 
-Claude Desktop uses stdio transport:
-
-Add to your Claude Desktop config (\`~/Library/Application Support/Claude/claude_desktop_config.json\` on macOS):
-
-\`\`\`json
-{
-  "mcpServers": {
-    "${options.name}": {
-      "command": "node",
-      "args": ["<absolute-path-to>/build/index.js"]
-    }
-  }
-}
-\`\`\`
-
----
-
-## Transport Endpoints
-
-When running with HTTP transport (\`npm run start:http\`):
-
-| Endpoint | Transport | Description |
-|----------|-----------|-------------|
-| \`/mcp\` | Streamable HTTP | Modern transport (MCP spec 2025-03-26). **Recommended.** |
-| \`/sse\` | Server-Sent Events | Legacy transport for older clients. |
-| \`/health\` | - | Health check endpoint. |
-
----
-
-## Troubleshooting
-
-### "No Resources Found" in Cursor
-
-1. Make sure the server is running: \`npm run start:http\`
-2. Check the health endpoint: \`curl http://localhost:3000/health\`
-3. Verify your \`mcp.json\` path is correct
-4. Restart Cursor after configuration changes
-5. Try using stdio transport instead of HTTP
-
-### Connection Errors
-
-1. Ensure the API base URL is correct in \`.env\`
-2. Check that required API keys are set in \`.env\`
-3. Verify the target API is accessible from your machine
-
-### TypeScript Build Errors
+## Quick Start
 
 \`\`\`bash
-# Clean and rebuild
-rm -rf build/
+npm install
 npm run build
+
+# Streamable HTTP
+npm run start:http
+
+# Or stdio for local desktop clients
+npm start
 \`\`\`
+
+## Configuration
+
+Copy \`.env.example\` to \`.env\`.
+
+- \`API_BASE_URL\`: Base URL of the target API
+- \`PORT\`: HTTP port for the MCP server
+${runtimeMode === "standalone_headers" ? "- Set the configured header env vars before starting the server" : ""}
+
+## Client Usage
+
+- HTTP clients: connect to \`http://localhost:3000/mcp\`
+- Stdio clients: run \`npm start\`
+
+## Notes
+
+- This generator no longer produces standalone public OAuth resource servers.
+- For user-scoped OAuth APIs, use Emcy-hosted MCP auth with \`emcy_hosted_worker\` mode.
 `;
 }

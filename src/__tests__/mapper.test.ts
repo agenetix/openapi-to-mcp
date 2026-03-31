@@ -16,6 +16,7 @@ describe('mapToMcpTools', () => {
         summary: 'Get all users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -24,7 +25,7 @@ describe('mapToMcpTools', () => {
 
     expect(tools).toHaveLength(1);
     expect(tools[0]).toEqual({
-      name: 'getUsers',
+      name: 'get_users',
       description: 'Get all users',
       inputSchema: { type: 'object', properties: {} },
       httpMethod: 'get',
@@ -32,6 +33,7 @@ describe('mapToMcpTools', () => {
       parameters: [],
       requestBodyContentType: undefined,
       securitySchemes: [],
+      requiredScopes: [],
     });
   });
 
@@ -51,6 +53,7 @@ describe('mapToMcpTools', () => {
           },
         ],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -92,6 +95,7 @@ describe('mapToMcpTools', () => {
           },
         ],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -127,6 +131,7 @@ describe('mapToMcpTools', () => {
           },
         },
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -148,6 +153,7 @@ describe('mapToMcpTools', () => {
         description: 'Retrieves a single user by their unique identifier.',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -165,6 +171,7 @@ describe('mapToMcpTools', () => {
         path: '/users/{id}',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -182,6 +189,7 @@ describe('mapToMcpTools', () => {
         path: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
       {
@@ -190,6 +198,7 @@ describe('mapToMcpTools', () => {
         path: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
       {
@@ -198,6 +207,7 @@ describe('mapToMcpTools', () => {
         path: '/users/{id}',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -205,7 +215,7 @@ describe('mapToMcpTools', () => {
     const tools = mapToMcpTools(endpoints);
 
     expect(tools).toHaveLength(3);
-    expect(tools.map(t => t.name)).toEqual(['getUsers', 'createUser', 'getUser']);
+    expect(tools.map(t => t.name)).toEqual(['get_users', 'post_users', 'get_users_by_id']);
   });
 
   it('should filter by enabled paths when provided', () => {
@@ -216,6 +226,7 @@ describe('mapToMcpTools', () => {
         path: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
       {
@@ -224,6 +235,7 @@ describe('mapToMcpTools', () => {
         path: '/users',
         parameters: [],
         securitySchemes: [],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -232,7 +244,7 @@ describe('mapToMcpTools', () => {
     const tools = mapToMcpTools(endpoints, enabledPaths);
 
     expect(tools).toHaveLength(1);
-    expect(tools[0].name).toBe('getUsers');
+    expect(tools[0].name).toBe('get_users');
   });
 
   it('should preserve security schemes', () => {
@@ -243,6 +255,7 @@ describe('mapToMcpTools', () => {
         path: '/secure',
         parameters: [],
         securitySchemes: ['bearerAuth', 'apiKey'],
+        requiredScopes: [],
         tags: [],
       },
     ];
@@ -261,6 +274,7 @@ describe('getEndpointKey', () => {
       path: '/users',
       parameters: [],
       securitySchemes: [],
+      requiredScopes: [],
       tags: [],
     };
 
@@ -271,9 +285,9 @@ describe('getEndpointKey', () => {
 describe('getAllEndpointKeys', () => {
   it('should return all endpoint keys', () => {
     const endpoints: OpenAPIEndpoint[] = [
-      { operationId: 'a', method: 'GET', path: '/users', parameters: [], securitySchemes: [], tags: [] },
-      { operationId: 'b', method: 'POST', path: '/users', parameters: [], securitySchemes: [], tags: [] },
-      { operationId: 'c', method: 'DELETE', path: '/users/{id}', parameters: [], securitySchemes: [], tags: [] },
+      { operationId: 'a', method: 'GET', path: '/users', parameters: [], securitySchemes: [], requiredScopes: [], tags: [] },
+      { operationId: 'b', method: 'POST', path: '/users', parameters: [], securitySchemes: [], requiredScopes: [], tags: [] },
+      { operationId: 'c', method: 'DELETE', path: '/users/{id}', parameters: [], securitySchemes: [], requiredScopes: [], tags: [] },
     ];
 
     const keys = getAllEndpointKeys(endpoints);
@@ -281,4 +295,3 @@ describe('getAllEndpointKeys', () => {
     expect(keys).toEqual(['GET:/users', 'POST:/users', 'DELETE:/users/{id}']);
   });
 });
-

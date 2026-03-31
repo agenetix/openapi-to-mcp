@@ -8,6 +8,7 @@ import type {
   JSONSchemaType,
   EndpointParameter,
 } from "./types.js";
+import { buildToolKey } from "./tool-identity.js";
 
 /**
  * Map OpenAPI endpoints to MCP tool definitions
@@ -36,7 +37,7 @@ function mapEndpointToTool(endpoint: OpenAPIEndpoint): McpToolDefinition {
   }
 
   return {
-    name: endpoint.operationId,
+    name: buildToolKey(endpoint.method, endpoint.path),
     description,
     inputSchema,
     httpMethod: endpoint.method.toLowerCase(),
@@ -44,6 +45,7 @@ function mapEndpointToTool(endpoint: OpenAPIEndpoint): McpToolDefinition {
     parameters: endpoint.parameters,
     requestBodyContentType: endpoint.requestBody?.contentType,
     securitySchemes: endpoint.securitySchemes,
+    requiredScopes: endpoint.requiredScopes,
   };
 }
 
