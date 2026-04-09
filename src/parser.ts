@@ -147,6 +147,9 @@ function extractParameter(param: OpenAPI3Parameter): EndpointParameter {
 
 function extractRequestBody(body: OpenAPI3RequestBody): RequestBodySchema | undefined {
   const content = body.content;
+  const description =
+    body.description
+    || (content?.['application/json']?.schema as OpenAPI3Schema | undefined)?.description;
   
   // Prefer JSON content type
   const jsonContent = content?.['application/json'];
@@ -154,6 +157,7 @@ function extractRequestBody(body: OpenAPI3RequestBody): RequestBodySchema | unde
     return {
       required: body.required || false,
       contentType: 'application/json',
+      description,
       schema: jsonContent.schema as JSONSchemaType,
     };
   }
@@ -164,6 +168,7 @@ function extractRequestBody(body: OpenAPI3RequestBody): RequestBodySchema | unde
     return {
       required: body.required || false,
       contentType,
+      description: description || (mediaType.schema as OpenAPI3Schema | undefined)?.description,
       schema: mediaType.schema as JSONSchemaType,
     };
   }
@@ -228,4 +233,3 @@ function capitalize(str: string): string {
 function isReference(obj: unknown): obj is OpenAPIV3.ReferenceObject | OpenAPIV3_1.ReferenceObject {
   return typeof obj === 'object' && obj !== null && '$ref' in obj;
 }
-

@@ -27,6 +27,7 @@ export type {
   PromptArgument,
   RuntimeMode,
   UpstreamHeaderConfig,
+  EmcyGatewayIntegrationConfig,
   HostedWorkerConfig,
   ToolInstructionConfig,
   HostedOauthConfig,

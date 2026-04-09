@@ -1,22 +1,28 @@
 import type {
+  EmcyGatewayIntegrationConfig,
+  GatewayOauthConfig,
   GeneratorOptions,
-  HostedOauthConfig,
   PromptDefinition,
   RuntimeMode,
   ToolInstructionConfig,
   UpstreamHeaderConfig,
 } from "./types.js";
 
+function isGatewayWorkerMode(mode: RuntimeMode): boolean {
+  return mode === "emcy_gateway_worker";
+}
+
 export interface GenerateCliValues {
   mode?: string;
+  "use-emcy-gateway"?: boolean;
   header?: string[];
   "prompts-json"?: string;
   "tool-instructions-json"?: string;
-  "hosted-provider"?: string;
-  "hosted-auth-server-url"?: string;
-  "hosted-client-id"?: string;
-  "hosted-resource"?: string;
-  "hosted-scopes"?: string;
+  "gateway-provider"?: string;
+  "gateway-auth-server-url"?: string;
+  "gateway-client-id"?: string;
+  "gateway-resource"?: string;
+  "gateway-scopes"?: string;
 }
 
 export interface ParsedGeneratorCliConfig {
@@ -24,18 +30,24 @@ export interface ParsedGeneratorCliConfig {
   upstreamHeaders: UpstreamHeaderConfig[];
   prompts?: PromptDefinition[];
   toolInstructions?: Record<string, ToolInstructionConfig>;
-  hostedOauthConfig?: HostedOauthConfig;
+  gatewayIntegration?: EmcyGatewayIntegrationConfig;
+  gatewayOauthConfig?: GatewayOauthConfig;
 }
 
 export function parseGeneratorCliConfig(
   values: GenerateCliValues
 ): ParsedGeneratorCliConfig {
   return {
-    runtimeMode: resolveRuntimeMode(values.mode, values.header),
+    runtimeMode: resolveRuntimeMode(
+      values.mode,
+      values.header,
+      values["use-emcy-gateway"] === true
+    ),
     upstreamHeaders: parseUpstreamHeaders(values.header),
     prompts: parsePrompts(values["prompts-json"]),
     toolInstructions: parseToolInstructions(values["tool-instructions-json"]),
-    hostedOauthConfig: parseHostedOauthConfig(values),
+    gatewayIntegration: parseEmcyGatewayIntegration(values),
+    gatewayOauthConfig: parseGatewayOauthConfig(values),
   };
 }
 
@@ -47,13 +59,17 @@ export function pickGeneratorOptions(
     ...baseOptions,
     runtimeMode: parsed.runtimeMode,
     upstreamHeaders: parsed.upstreamHeaders,
+    gatewayIntegration: parsed.gatewayIntegration,
     prompts: parsed.prompts,
     toolInstructions: parsed.toolInstructions,
-    hostedOauthConfig: parsed.hostedOauthConfig,
-    hostedWorkerConfig:
-      parsed.runtimeMode === "emcy_hosted_worker"
-        ? baseOptions.hostedWorkerConfig ?? {}
-        : undefined,
+    hostedOauthConfig:
+      parsed.gatewayIntegration?.oauth ?? parsed.gatewayOauthConfig,
+    hostedWorkerConfig: isGatewayWorkerMode(parsed.runtimeMode)
+      ? parsed.gatewayIntegration?.worker ??
+        baseOptions.gatewayIntegration?.worker ??
+        baseOptions.hostedWorkerConfig ??
+        {}
+      : undefined,
   };
 }
 
@@ -89,14 +105,14 @@ export function parseToolInstructions(
   return parsed as Record<string, ToolInstructionConfig>;
 }
 
-export function parseHostedOauthConfig(
+export function parseGatewayOauthConfig(
   values: GenerateCliValues
-): HostedOauthConfig | undefined {
-  const provider = clean(values["hosted-provider"]);
-  const authorizationServerUrl = clean(values["hosted-auth-server-url"]);
-  const clientId = clean(values["hosted-client-id"]);
-  const resource = clean(values["hosted-resource"]);
-  const scopes = parseScopes(values["hosted-scopes"]);
+): GatewayOauthConfig | undefined {
+  const provider = clean(values["gateway-provider"]);
+  const authorizationServerUrl = clean(values["gateway-auth-server-url"]);
+  const clientId = clean(values["gateway-client-id"]);
+  const resource = clean(values["gateway-resource"]);
+  const scopes = parseScopes(values["gateway-scopes"]);
 
   if (
     !provider &&
@@ -117,10 +133,33 @@ export function parseHostedOauthConfig(
   };
 }
 
+export function parseEmcyGatewayIntegration(
+  values: GenerateCliValues
+): EmcyGatewayIntegrationConfig | undefined {
+  const usesGateway = values["use-emcy-gateway"] === true;
+  const oauth = parseGatewayOauthConfig(values);
+  const explicitMode = normalizeRuntimeMode(values.mode);
+  const modeUsesGateway = explicitMode ? isGatewayWorkerMode(explicitMode) : false;
+
+  if (!usesGateway && !modeUsesGateway && !oauth) {
+    return undefined;
+  }
+
+  return {
+    provider: "emcy",
+    ...(oauth ? { oauth } : {}),
+  };
+}
+
 export function resolveRuntimeMode(
   mode: string | undefined,
-  headerArgs: string[] | undefined
+  headerArgs: string[] | undefined,
+  useEmcyGateway = false
 ): RuntimeMode {
+  if (useEmcyGateway) {
+    return "emcy_gateway_worker";
+  }
+
   const normalizedMode = normalizeRuntimeMode(mode);
   if (normalizedMode) {
     return normalizedMode;
@@ -156,14 +195,14 @@ export function normalizeRuntimeMode(
   }
 
   if (
-    normalized === "emcy-hosted-worker" ||
-    normalized === "emcy_hosted_worker"
+    normalized === "emcy-gateway-worker" ||
+    normalized === "emcy_gateway_worker"
   ) {
-    return "emcy_hosted_worker";
+    return "emcy_gateway_worker";
   }
 
   throw new Error(
-    `Unsupported --mode "${mode}". Supported modes: standalone-no-auth, standalone-headers, emcy-hosted-worker`
+    `Unsupported --mode "${mode}". Supported modes: standalone-no-auth, standalone-headers. For Emcy Gateway-backed runtimes, use --use-emcy-gateway.`
   );
 }
 

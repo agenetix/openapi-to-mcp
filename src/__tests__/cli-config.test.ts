@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeRuntimeMode,
+  parseEmcyGatewayIntegration,
+  parseGatewayOauthConfig,
   parseGeneratorCliConfig,
-  parseHostedOauthConfig,
   parseToolInstructions,
 } from "../cli-config.js";
 
@@ -10,16 +11,16 @@ describe("cli-config", () => {
   it("normalizes supported runtime modes", () => {
     expect(normalizeRuntimeMode("standalone-no-auth")).toBe("standalone_no_auth");
     expect(normalizeRuntimeMode("standalone_headers")).toBe("standalone_headers");
-    expect(normalizeRuntimeMode("emcy-hosted-worker")).toBe("emcy_hosted_worker");
+    expect(normalizeRuntimeMode("emcy-gateway-worker")).toBe("emcy_gateway_worker");
   });
 
-  it("parses hosted oauth config from explicit flags", () => {
-    const config = parseHostedOauthConfig({
-      "hosted-provider": "auth0",
-      "hosted-auth-server-url": "https://auth.example.com",
-      "hosted-client-id": "client_123",
-      "hosted-resource": "https://api.example.com",
-      "hosted-scopes": "openid profile email offline_access todos.read",
+  it("parses gateway oauth config from explicit flags", () => {
+    const config = parseGatewayOauthConfig({
+      "gateway-provider": "auth0",
+      "gateway-auth-server-url": "https://auth.example.com",
+      "gateway-client-id": "client_123",
+      "gateway-resource": "https://api.example.com",
+      "gateway-scopes": "openid profile email offline_access todos.read",
     });
 
     expect(config).toEqual({
@@ -47,9 +48,9 @@ describe("cli-config", () => {
     });
   });
 
-  it("builds generator CLI config for hosted workers", () => {
+  it("builds generator CLI config for gateway workers", () => {
     const parsed = parseGeneratorCliConfig({
-      mode: "emcy-hosted-worker",
+      "use-emcy-gateway": true,
       "prompts-json": JSON.stringify([
         {
           name: "todo-summary",
@@ -62,26 +63,50 @@ describe("cli-config", () => {
           whenToUse: "When the user asks to list todos.",
         },
       }),
-      "hosted-provider": "sqlos",
-      "hosted-auth-server-url": "https://auth.example.com/sqlos/auth",
-      "hosted-client-id": "todo-mcp-local",
-      "hosted-resource": "https://api.example.com/todos",
-      "hosted-scopes": "openid profile todos.read todos.write",
+      "gateway-provider": "sqlos",
+      "gateway-auth-server-url": "https://auth.example.com/sqlos/auth",
+      "gateway-client-id": "todo-mcp-local",
+      "gateway-resource": "https://api.example.com/todos",
+      "gateway-scopes": "openid profile todos.read todos.write",
     });
 
-    expect(parsed.runtimeMode).toBe("emcy_hosted_worker");
+    expect(parsed.runtimeMode).toBe("emcy_gateway_worker");
     expect(parsed.prompts).toHaveLength(1);
     expect(parsed.toolInstructions).toEqual({
       get_api_todos: {
         whenToUse: "When the user asks to list todos.",
       },
     });
-    expect(parsed.hostedOauthConfig).toEqual({
+    expect(parsed.gatewayOauthConfig).toEqual({
       provider: "sqlos",
       authorizationServerUrl: "https://auth.example.com/sqlos/auth",
       clientId: "todo-mcp-local",
       resource: "https://api.example.com/todos",
       scopes: ["openid", "profile", "todos.read", "todos.write"],
+    });
+    expect(parsed.gatewayIntegration).toEqual({
+      provider: "emcy",
+      oauth: {
+        provider: "sqlos",
+        authorizationServerUrl: "https://auth.example.com/sqlos/auth",
+        clientId: "todo-mcp-local",
+        resource: "https://api.example.com/todos",
+        scopes: ["openid", "profile", "todos.read", "todos.write"],
+      },
+    });
+  });
+
+  it("parses emcy gateway integration from legacy runtime mode", () => {
+    const integration = parseEmcyGatewayIntegration({
+      mode: "emcy-gateway-worker",
+      "gateway-auth-server-url": "https://auth.example.com",
+    });
+
+    expect(integration).toEqual({
+      provider: "emcy",
+      oauth: {
+        authorizationServerUrl: "https://auth.example.com",
+      },
     });
   });
 });

@@ -46,16 +46,18 @@ GENERATE OPTIONS:
   --local-sdk     Path to local @emcy/sdk for development (uses file: reference)
   --prompts-json  JSON array of prompt definitions for MCP prompts feature
   --tool-instructions-json  JSON object keyed by tool key for tool-specific guidance
-  --mode          Runtime mode:
-                  standalone-no-auth | standalone-headers | emcy-hosted-worker
+  --mode          Low-level runtime mode:
+                  standalone-no-auth | standalone-headers
+                  Use --use-emcy-gateway when you want Emcy Gateway to be the public edge.
+  --use-emcy-gateway
+                  Generate a server preconfigured to use Emcy Gateway as the public MCP/OAuth edge
   --header        Upstream header mapping in the form Header-Name=ENV_VAR
-                  Repeatable. Applies to standalone-headers and emcy-hosted-worker.
-  --hosted-provider        Hosted OAuth provider recipe label
-  --hosted-auth-server-url Hosted OAuth issuer or metadata base URL
-  --hosted-client-id       Downstream client ID Emcy should use
-  --hosted-resource        Downstream API resource / audience
-  --hosted-scopes          Comma or space separated downstream scopes
-
+                  Repeatable. Applies to standalone-headers and Gateway-enabled generated servers.
+  --gateway-provider        Emcy Gateway OAuth provider recipe label
+  --gateway-auth-server-url Downstream OAuth issuer or metadata base URL
+  --gateway-client-id       Downstream client ID Emcy should use
+  --gateway-resource        Downstream API resource / audience
+  --gateway-scopes          Comma or space separated downstream scopes
 EXAMPLES:
   # Generate from a URL
   npx @emcy/openapi-to-mcp generate --url https://petstore.swagger.io/v2/swagger.json
@@ -69,13 +71,13 @@ EXAMPLES:
   # Generate a standalone MCP server that injects API key headers upstream
   npx @emcy/openapi-to-mcp generate --url ./api.json --mode standalone-headers --header X-API-Key=UPSTREAM_API_KEY
 
-  # Generate an Emcy-hosted worker for OAuth-protected apps
-  npx @emcy/openapi-to-mcp generate --url ./api.json --mode emcy-hosted-worker \\
-    --hosted-provider sqlos \\
-    --hosted-auth-server-url https://auth.example.com/sqlos/auth \\
-    --hosted-client-id todo-mcp-local \\
-    --hosted-resource https://api.example.com/todos \\
-    --hosted-scopes "openid profile email offline_access todos.read todos.write"
+  # Generate a server that will use Emcy Gateway as the public edge
+  npx @emcy/openapi-to-mcp generate --url ./api.json --use-emcy-gateway \\
+    --gateway-provider sqlos \\
+    --gateway-auth-server-url https://auth.example.com/sqlos/auth \\
+    --gateway-client-id todo-mcp-local \\
+    --gateway-resource https://api.example.com/todos \\
+    --gateway-scopes "openid profile email offline_access todos.read todos.write"
 
   # Validate an OpenAPI spec
   npx @emcy/openapi-to-mcp validate --url https://api.example.com/openapi.json
@@ -157,12 +159,13 @@ async function runGenerate(args: string[]) {
       'prompts-json': { type: 'string' },  // JSON array of prompt definitions
       'tool-instructions-json': { type: 'string' },
       mode: { type: 'string' },
+      'use-emcy-gateway': { type: 'boolean', default: false },
       header: { type: 'string', multiple: true },
-      'hosted-provider': { type: 'string' },
-      'hosted-auth-server-url': { type: 'string' },
-      'hosted-client-id': { type: 'string' },
-      'hosted-resource': { type: 'string' },
-      'hosted-scopes': { type: 'string' },
+      'gateway-provider': { type: 'string' },
+      'gateway-auth-server-url': { type: 'string' },
+      'gateway-client-id': { type: 'string' },
+      'gateway-resource': { type: 'string' },
+      'gateway-scopes': { type: 'string' },
     },
     allowPositionals: false,
   });
@@ -213,7 +216,16 @@ async function runGenerate(args: string[]) {
     console.log(`\nGenerating MCP server: ${serverName}`);
     console.log(`  Output: ${resolvedOutput}`);
     console.log(`  Emcy Telemetry: ${values.emcy ? 'enabled' : 'disabled'}`);
-    console.log(`  Runtime Mode: ${parsedConfig.runtimeMode}`);
+    console.log(
+      `  Runtime Shape: ${
+        parsedConfig.gatewayIntegration
+          ? "server configured to use Emcy Gateway as the public edge"
+          : parsedConfig.runtimeMode === "standalone_headers"
+            ? "standalone server with injected upstream headers"
+            : "standalone public server"
+      }`
+    );
+    console.log(`  Emcy Gateway: ${parsedConfig.gatewayIntegration ? 'enabled' : 'disabled'}`);
     if (values['local-sdk']) {
       console.log(`  Local SDK: ${values['local-sdk']}`);
     }
@@ -226,8 +238,10 @@ async function runGenerate(args: string[]) {
     if (parsedConfig.toolInstructions) {
       console.log(`  Tool Instructions: ${Object.keys(parsedConfig.toolInstructions).length} tool(s) customized`);
     }
-    if (parsedConfig.hostedOauthConfig) {
-      console.log(`  Hosted OAuth: ${parsedConfig.hostedOauthConfig.provider || 'manual'}${parsedConfig.hostedOauthConfig.authorizationServerUrl ? ` via ${parsedConfig.hostedOauthConfig.authorizationServerUrl}` : ''}`);
+    if (parsedConfig.gatewayIntegration?.oauth || parsedConfig.gatewayOauthConfig) {
+      const gatewayOauth =
+        parsedConfig.gatewayIntegration?.oauth ?? parsedConfig.gatewayOauthConfig;
+      console.log(`  Gateway OAuth: ${gatewayOauth?.provider || 'manual'}${gatewayOauth?.authorizationServerUrl ? ` via ${gatewayOauth.authorizationServerUrl}` : ''}`);
     }
 
     // Generate the server

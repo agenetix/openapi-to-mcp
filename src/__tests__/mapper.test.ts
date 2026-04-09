@@ -121,6 +121,7 @@ describe('mapToMcpTools', () => {
         requestBody: {
           required: true,
           contentType: 'application/json',
+          description: 'Desired fields for the new user.',
           schema: {
             type: 'object',
             properties: {
@@ -141,6 +142,15 @@ describe('mapToMcpTools', () => {
     expect(tools[0].inputSchema.properties?.requestBody).toBeDefined();
     expect(tools[0].inputSchema.required).toContain('requestBody');
     expect(tools[0].requestBodyContentType).toBe('application/json');
+    expect(tools[0].inputSchema.properties?.requestBody).toEqual({
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        email: { type: 'string' },
+      },
+      required: ['name', 'email'],
+      description: 'Desired fields for the new user.',
+    });
   });
 
   it('should include description from endpoint', () => {

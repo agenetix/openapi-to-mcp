@@ -188,6 +188,7 @@ describe('parseOpenAPI', () => {
         '/users': {
           post: {
             requestBody: {
+              description: 'Fields used to create a user.',
               required: true,
               content: {
                 'application/json': {
@@ -212,6 +213,7 @@ describe('parseOpenAPI', () => {
     expect(result.endpoints[0].requestBody).toBeDefined();
     expect(result.endpoints[0].requestBody?.required).toBe(true);
     expect(result.endpoints[0].requestBody?.contentType).toBe('application/json');
+    expect(result.endpoints[0].requestBody?.description).toBe('Fields used to create a user.');
     expect(result.endpoints[0].requestBody?.schema.type).toBe('object');
   });
 
@@ -301,4 +303,3 @@ describe('validateOpenAPI', () => {
     expect(result.errors?.length).toBeGreaterThan(0);
   });
 });
-

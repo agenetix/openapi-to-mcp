@@ -69,7 +69,10 @@ function buildInputSchema(endpoint: OpenAPIEndpoint): JSONSchemaType {
   if (endpoint.requestBody) {
     properties.requestBody = {
       ...endpoint.requestBody.schema,
-      description: "The JSON request body.",
+      description:
+        endpoint.requestBody.description
+        || endpoint.requestBody.schema.description
+        || "The JSON request body.",
     };
 
     if (endpoint.requestBody.required) {

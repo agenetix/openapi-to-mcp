@@ -4,10 +4,11 @@
  * Supported runtime modes:
  * - standalone_no_auth
  * - standalone_headers
- * - emcy_hosted_worker
+ * - emcy_gateway_worker
  */
 
 import type {
+  EmcyGatewayIntegrationConfig,
   GeneratorOptions,
   GeneratedFiles,
   HostedOauthConfig,
@@ -19,13 +20,43 @@ import type {
   UpstreamHeaderConfig,
 } from "./types.js";
 
+function normalizeRuntimeModeAlias(runtimeMode: RuntimeMode): RuntimeMode {
+  return runtimeMode;
+}
+
+function isGatewayWorkerMode(runtimeMode: RuntimeMode): boolean {
+  return normalizeRuntimeModeAlias(runtimeMode) === "emcy_gateway_worker";
+}
+
+function resolveEmcyGatewayIntegration(
+  options: GeneratorOptions
+): EmcyGatewayIntegrationConfig | undefined {
+  if (options.gatewayIntegration?.provider === "emcy") {
+    return options.gatewayIntegration;
+  }
+
+  if (options.hostedOauthConfig || options.hostedWorkerConfig) {
+    return {
+      provider: "emcy",
+      ...(options.hostedOauthConfig ? { oauth: options.hostedOauthConfig } : {}),
+      ...(options.hostedWorkerConfig ? { worker: options.hostedWorkerConfig } : {}),
+    };
+  }
+
+  return undefined;
+}
+
 function getRuntimeMode(options: GeneratorOptions): RuntimeMode {
+  if (resolveEmcyGatewayIntegration(options)) {
+    return "emcy_gateway_worker";
+  }
+
   if (options.runtimeMode) {
-    return options.runtimeMode;
+    return normalizeRuntimeModeAlias(options.runtimeMode);
   }
 
   if (options.hostedWorkerConfig) {
-    return "emcy_hosted_worker";
+    return "emcy_gateway_worker";
   }
 
   if ((options.upstreamHeaders?.length ?? 0) > 0) {
@@ -35,8 +66,8 @@ function getRuntimeMode(options: GeneratorOptions): RuntimeMode {
   return "standalone_no_auth";
 }
 
-function isHostedWorkerMode(options: GeneratorOptions): boolean {
-  return getRuntimeMode(options) === "emcy_hosted_worker";
+function isGatewayBackedRuntime(options: GeneratorOptions): boolean {
+  return isGatewayWorkerMode(getRuntimeMode(options));
 }
 
 function toEnvKey(value: string): string {
@@ -57,7 +88,7 @@ function formatHeaderDescription(headers: UpstreamHeaderConfig[]): string {
     .join(", ");
 }
 
-function formatHostedOauthDescription(config?: HostedOauthConfig): string {
+function formatGatewayOauthDescription(config?: HostedOauthConfig): string {
   if (!config) {
     return "none";
   }
@@ -109,7 +140,7 @@ export function generateMcpServer(
 }
 
 function generatePackageJson(options: GeneratorOptions): string {
-  const isHostedWorker = isHostedWorkerMode(options);
+  const isHostedWorker = isGatewayBackedRuntime(options);
 
   const pkg = {
     name: options.name,
@@ -185,9 +216,11 @@ function generateServerEntry(
   securitySchemes: Record<string, SecurityScheme>
 ): string {
   const runtimeMode = getRuntimeMode(options);
-  const hasHostedWorker = runtimeMode === "emcy_hosted_worker";
+  const hasHostedWorker = isGatewayWorkerMode(runtimeMode);
   const configuredHeaders = options.upstreamHeaders ?? [];
-  const hostedOauthConfig = options.hostedOauthConfig;
+  const gatewayIntegration = resolveEmcyGatewayIntegration(options);
+  const gatewayOauthConfig =
+    gatewayIntegration?.oauth ?? options.hostedOauthConfig;
   const toolInstructions = options.toolInstructions;
 
   const toolDefinitions = tools
@@ -241,25 +274,30 @@ if (emcy) {
 `
     : "";
 
-  const hostedWorkerConfig = hasHostedWorker
+  const gatewayWorkerConfigBlock = hasHostedWorker
     ? `
-const HOSTED_WORKER_CONFIG = {
+const GATEWAY_WORKER_CONFIG = {
   workerSecretHeader: process.env.EMCY_WORKER_SECRET_HEADER || ${JSON.stringify(
-    options.hostedWorkerConfig?.workerSecretHeader || "x-emcy-worker-secret"
+    gatewayIntegration?.worker?.workerSecretHeader ||
+      options.hostedWorkerConfig?.workerSecretHeader ||
+      "x-emcy-worker-secret"
   )},
   workerSecretEnvVar: process.env.EMCY_WORKER_SECRET_ENV_VAR || ${JSON.stringify(
-    options.hostedWorkerConfig?.workerSecretEnvVar || "EMCY_WORKER_SHARED_SECRET"
+    gatewayIntegration?.worker?.workerSecretEnvVar ||
+      options.hostedWorkerConfig?.workerSecretEnvVar ||
+      "EMCY_WORKER_SHARED_SECRET"
   )},
   upstreamAccessTokenHeader: process.env.EMCY_UPSTREAM_ACCESS_TOKEN_HEADER || ${JSON.stringify(
-    options.hostedWorkerConfig?.upstreamAccessTokenHeader ||
+    gatewayIntegration?.worker?.upstreamAccessTokenHeader ||
+      options.hostedWorkerConfig?.upstreamAccessTokenHeader ||
       "x-emcy-upstream-access-token"
   )},
 };
 `
     : "";
 
-  const upstreamHeaderConfig = `
-type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";
+const upstreamHeaderConfig = `
+type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";
 const RUNTIME_MODE: RuntimeMode = ${JSON.stringify(runtimeMode)};
 const UPSTREAM_HEADERS: RuntimeUpstreamHeader[] = ${JSON.stringify(configuredHeaders, null, 2)};
 `;
@@ -322,7 +360,7 @@ interface RuntimeUpstreamHeader {
   defaultValue?: string;
 }
 
-interface RuntimeHostedOauthConfig {
+interface RuntimeGatewayOauthConfig {
   provider?: string;
   authorizationServerUrl?: string;
   clientId?: string;
@@ -342,8 +380,8 @@ const securitySchemes: Record<string, unknown> = ${JSON.stringify(
     null,
     2
   )};
-${upstreamHeaderConfig}${hostedWorkerConfig}${emcyInit}
-const HOSTED_OAUTH_CONFIG: RuntimeHostedOauthConfig | null = ${JSON.stringify(hostedOauthConfig ?? null, null, 2)};
+${upstreamHeaderConfig}${gatewayWorkerConfigBlock}${emcyInit}
+const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = ${JSON.stringify(gatewayOauthConfig ?? null, null, 2)};
 const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = ${JSON.stringify(toolInstructions ?? {}, null, 2)};
 const toolDefinitionMap: Map<string, RuntimeToolDefinition> = new Map([
 ${toolDefinitions}
@@ -424,7 +462,7 @@ async function executeRequest(
 
   applySecurityHeaders(headers, def.securitySchemes);
   applyConfiguredUpstreamHeaders(headers);
-  applyHostedWorkerAccessToken(headers, upstreamAccessToken);
+  applyGatewayWorkerAccessToken(headers, upstreamAccessToken);
 
   const config: AxiosRequestConfig = {
     method: def.method,
@@ -507,11 +545,11 @@ function applyConfiguredUpstreamHeaders(headers: Record<string, string>): void {
   }
 }
 
-function applyHostedWorkerAccessToken(
+function applyGatewayWorkerAccessToken(
   headers: Record<string, string>,
   upstreamAccessToken?: string
 ): void {
-  if (RUNTIME_MODE !== "emcy_hosted_worker" || !upstreamAccessToken) {
+  if (RUNTIME_MODE !== "emcy_gateway_worker" || !upstreamAccessToken) {
     return;
   }
 
@@ -523,8 +561,8 @@ async function main(): Promise<void> {
   const useHttp = args.includes("--transport=streamable-http");
   const port = parseInt(process.env.PORT || "3000", 10);
 
-  if (RUNTIME_MODE === "emcy_hosted_worker" || useHttp) {
-    await setupStreamableHttpServer(port${hasHostedWorker ? ", HOSTED_WORKER_CONFIG" : ""});
+  if (RUNTIME_MODE === "emcy_gateway_worker" || useHttp) {
+    await setupStreamableHttpServer(port${hasHostedWorker ? ", GATEWAY_WORKER_CONFIG" : ""});
     return;
   }
 
@@ -618,24 +656,24 @@ function generatePromptHandlers(): string {
 
 function generateTransport(options: GeneratorOptions): string {
   const runtimeMode = getRuntimeMode(options);
-  const hasHostedWorker = runtimeMode === "emcy_hosted_worker";
+  const hasHostedWorker = isGatewayWorkerMode(runtimeMode);
 
-  const hostedWorkerTypes = hasHostedWorker
+  const gatewayWorkerTypes = hasHostedWorker
     ? `
-interface HostedWorkerRuntimeConfig {
+interface GatewayWorkerRuntimeConfig {
   workerSecretHeader: string;
   workerSecretEnvVar: string;
   upstreamAccessTokenHeader: string;
 }
 
-let hostedWorkerRuntimeConfig: HostedWorkerRuntimeConfig | undefined;
+let gatewayWorkerRuntimeConfig: GatewayWorkerRuntimeConfig | undefined;
 
-function getHostedWorkerConfig(): HostedWorkerRuntimeConfig {
-  if (!hostedWorkerRuntimeConfig) {
-    throw new Error("Hosted worker runtime config was not initialized.");
+function getGatewayWorkerConfig(): GatewayWorkerRuntimeConfig {
+  if (!gatewayWorkerRuntimeConfig) {
+    throw new Error("Gateway worker runtime config was not initialized.");
   }
 
-  return hostedWorkerRuntimeConfig;
+  return gatewayWorkerRuntimeConfig;
 }
 `
     : "";
@@ -643,7 +681,7 @@ function getHostedWorkerConfig(): HostedWorkerRuntimeConfig {
   const requestTokenResolver = hasHostedWorker
     ? `
 function getRequestAccessToken(c: any): string | undefined {
-  const forwarded = c.req.header(getHostedWorkerConfig().upstreamAccessTokenHeader);
+  const forwarded = c.req.header(getGatewayWorkerConfig().upstreamAccessTokenHeader);
   if (forwarded) {
     return forwarded;
   }
@@ -662,10 +700,10 @@ function getRequestAccessToken(_c: any): string | undefined {
 }
 `;
 
-  const hostedWorkerMiddleware = hasHostedWorker
+  const gatewayWorkerMiddleware = hasHostedWorker
     ? `
   app.use("/mcp", async (c, next) => {
-    const workerConfig = getHostedWorkerConfig();
+    const workerConfig = getGatewayWorkerConfig();
     const expectedSecret = process.env[workerConfig.workerSecretEnvVar];
 
     if (!expectedSecret) {
@@ -696,8 +734,8 @@ function getRequestAccessToken(_c: any): string | undefined {
 
   const startupDetails = hasHostedWorker
     ? `
-    console.error(\`║  Mode:   Emcy hosted worker                                  ║\`);
-    console.error(\`║  Header: \${getHostedWorkerConfig().workerSecretHeader.padEnd(53)} ║\`);
+    console.error(\`║  Mode:   Gateway-backed runtime                              ║\`);
+    console.error(\`║  Header: \${getGatewayWorkerConfig().workerSecretHeader.padEnd(53)} ║\`);
     console.error(\`║  Clients: Emcy should call this worker, not end users.      ║\`);
 `
     : `
@@ -714,7 +752,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { createServer, SERVER_NAME, SERVER_VERSION } from "./index.js";
-${hostedWorkerTypes}
+${gatewayWorkerTypes}
 const { WebStandardStreamableHTTPServerTransport } = await import(
   "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 );
@@ -724,9 +762,9 @@ const sessionTokens: Map<string, { current: string }> = new Map();
 ${requestTokenResolver}
 
 export async function setupStreamableHttpServer(
-  port = 3000${hasHostedWorker ? ", hostedWorkerConfig?: HostedWorkerRuntimeConfig" : ""}
+  port = 3000${hasHostedWorker ? ", gatewayWorkerConfig?: GatewayWorkerRuntimeConfig" : ""}
 ): Promise<Hono> {
-${hasHostedWorker ? "  hostedWorkerRuntimeConfig = hostedWorkerConfig;\n" : ""}  const app = new Hono();
+${hasHostedWorker ? "  gatewayWorkerRuntimeConfig = gatewayWorkerConfig;\n" : ""}  const app = new Hono();
 
   app.use(
     "*",
@@ -745,7 +783,7 @@ ${hasHostedWorker ? "  hostedWorkerRuntimeConfig = hostedWorkerConfig;\n" : ""} 
       exposeHeaders: ["mcp-session-id"],
     })
   );
-${hostedWorkerMiddleware}
+${gatewayWorkerMiddleware}
   app.get("/health", (c) => {
     return c.json({
       status: "OK",
@@ -757,10 +795,10 @@ ${hostedWorkerMiddleware}
           mcp: "/mcp",
           health: "/health",
         },
-${hasHostedWorker ? `        hosted_worker: {
+${hasHostedWorker ? `        gateway_worker: {
           enabled: true,
-          worker_secret_header: getHostedWorkerConfig().workerSecretHeader,
-          upstream_access_token_header: getHostedWorkerConfig().upstreamAccessTokenHeader,
+          worker_secret_header: getGatewayWorkerConfig().workerSecretHeader,
+          upstream_access_token_header: getGatewayWorkerConfig().upstreamAccessTokenHeader,
         },` : `        public_server: true,`}
       },
     });
@@ -862,6 +900,7 @@ function generateEnvExample(
   options: GeneratorOptions
 ): string {
   const runtimeMode = getRuntimeMode(options);
+  const gatewayIntegration = resolveEmcyGatewayIntegration(options);
   const lines = [
     "# API Configuration",
     `API_BASE_URL=${options.baseUrl}`,
@@ -876,23 +915,23 @@ function generateEnvExample(
     "PORT=3000",
   ];
 
-  if (runtimeMode === "emcy_hosted_worker") {
+  if (isGatewayWorkerMode(runtimeMode)) {
     lines.push(
       "",
-      "# Hosted worker configuration",
+      "# Emcy Gateway worker configuration",
       "EMCY_WORKER_SHARED_SECRET=change-me",
       "# EMCY_WORKER_SECRET_HEADER=x-emcy-worker-secret",
       "# EMCY_UPSTREAM_ACCESS_TOKEN_HEADER=x-emcy-upstream-access-token"
     );
-    if (options.hostedOauthConfig?.authorizationServerUrl) {
+    if (gatewayIntegration?.oauth?.authorizationServerUrl) {
       lines.push(
         "",
-        "# Hosted OAuth reference",
-        `# Provider: ${options.hostedOauthConfig.provider ?? "manual"}`,
-        `# Authorization server: ${options.hostedOauthConfig.authorizationServerUrl}`,
-        `# Client ID: ${options.hostedOauthConfig.clientId ?? ""}`,
-        `# Resource: ${options.hostedOauthConfig.resource ?? ""}`,
-        `# Scopes: ${(options.hostedOauthConfig.scopes ?? []).join(" ")}`
+        "# Emcy Gateway OAuth reference",
+        `# Provider: ${gatewayIntegration.oauth.provider ?? "manual"}`,
+        `# Authorization server: ${gatewayIntegration.oauth.authorizationServerUrl}`,
+        `# Client ID: ${gatewayIntegration.oauth.clientId ?? ""}`,
+        `# Resource: ${gatewayIntegration.oauth.resource ?? ""}`,
+        `# Scopes: ${(gatewayIntegration.oauth.scopes ?? []).join(" ")}`
       );
     }
   }
@@ -953,8 +992,11 @@ function generateReadme(
   securitySchemes: Record<string, SecurityScheme>
 ): string {
   const runtimeMode = getRuntimeMode(options);
+  const gatewayIntegration = resolveEmcyGatewayIntegration(options);
   const configuredHeaders = options.upstreamHeaders ?? [];
-  const hostedOauthSummary = formatHostedOauthDescription(options.hostedOauthConfig);
+  const gatewayOauthSummary = formatGatewayOauthDescription(
+    gatewayIntegration?.oauth ?? options.hostedOauthConfig
+  );
   const toolInstructionSummary = formatToolInstructionSummary(options.toolInstructions);
   const hasPrompts = options.prompts && options.prompts.length > 0;
   const promptSection = hasPrompts
@@ -967,20 +1009,20 @@ ${options.prompts!.map((prompt) => `- **${prompt.name}**: ${prompt.description}`
 `
     : "";
 
-  if (runtimeMode === "emcy_hosted_worker") {
+  if (isGatewayWorkerMode(runtimeMode)) {
     return `# ${options.name}
 
-Hosted worker runtime generated from an OpenAPI specification by [Emcy](https://emcy.ai).
+Gateway-enabled MCP runtime generated from an OpenAPI specification by [Emcy](https://emcy.ai).
 ${promptSection}
-## Runtime Mode
+## Runtime Shape
 
-This runtime is intended to run behind Emcy-hosted MCP auth.
+This runtime is meant to be used with Emcy Gateway as the public MCP and OAuth edge.
 
-- Emcy owns the public MCP URL and OAuth flow
-- Emcy forwards a short-lived downstream access token to this worker
-- Hosted OAuth config: ${hostedOauthSummary}
+- Emcy Gateway owns the public MCP URL and OAuth flow
+- Run this runtime yourself, or use Emcy Host if you want us to run it
+- Gateway OAuth reference: ${gatewayOauthSummary}
 - Tool instructions configured for: ${toolInstructionSummary}
-- MCP clients should connect to Emcy, not directly to this worker
+- MCP clients should connect to Emcy Gateway, not directly to this runtime
 
 ## Quick Start
 
@@ -995,14 +1037,14 @@ npm run start:http
 Copy \`.env.example\` to \`.env\` and configure:
 
 - \`API_BASE_URL\`: Base URL of the downstream API
-- \`PORT\`: HTTP port for the worker runtime
-- \`EMCY_WORKER_SHARED_SECRET\`: Shared secret Emcy uses to call the worker
+- \`PORT\`: HTTP port for the runtime
+- \`EMCY_WORKER_SHARED_SECRET\`: Shared secret Emcy uses to call the runtime
 
 ## Local Validation
 
-1. Run the worker with \`npm run start:http\`
-2. Configure Emcy to call this worker
-3. Let Emcy host the public MCP server, OAuth flow, and client registration
+1. Run the runtime with \`npm run start:http\`
+2. Configure Emcy Gateway to use this runtime
+3. Let Emcy Host and Gateway expose the public MCP server, OAuth flow, and client registration
 4. Validate tool calls through Emcy
 `;
   }
@@ -1026,7 +1068,7 @@ Copy \`.env.example\` to \`.env\` and configure:
 
 MCP server generated from an OpenAPI specification by [Emcy](https://emcy.ai).
 ${promptSection}
-## Runtime Mode
+## Runtime Shape
 
 \`${runtimeMode}\`
 
@@ -1066,6 +1108,6 @@ ${runtimeMode === "standalone_headers" ? "- Set the configured header env vars b
 ## Notes
 
 - This generator no longer produces standalone public OAuth resource servers.
-- For user-scoped OAuth APIs, use Emcy-hosted MCP auth with \`emcy_hosted_worker\` mode.
+- For user-scoped OAuth APIs generated from OpenAPI, use Emcy Gateway.
 `;
 }

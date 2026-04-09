@@ -67,9 +67,9 @@ describe("generateMcpServer", () => {
 
     expect(pkg.scripts.start).toBe("node build/index.js");
     expect(pkg.dependencies.jose).toBeUndefined();
-    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";');
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";');
     expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "standalone_no_auth";');
-    expect(serverCode).not.toContain("HOSTED_WORKER_CONFIG");
+    expect(serverCode).not.toContain("GATEWAY_WORKER_CONFIG");
     expect(transportCode).toContain('public_server: true');
     expect(transportCode).not.toContain("protected-resource-metadata");
     expect(envExample).toContain("API_BASE_URL=http://localhost:3000");
@@ -112,7 +112,7 @@ describe("generateMcpServer", () => {
     const envExample = files[".env.example"];
     const readme = files["README.md"];
 
-    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";');
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";');
     expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "standalone_headers";');
     expect(serverCode).toContain('"envVar": "UPSTREAM_API_KEY"');
     expect(serverCode).toContain('"envVar": "UPSTREAM_TOKEN"');
@@ -126,17 +126,19 @@ describe("generateMcpServer", () => {
     expect(envExample).not.toContain("FORWARD_CLIENT_TOKEN");
   });
 
-  it("generates Emcy hosted workers without public OAuth behavior", () => {
+  it("generates Emcy gateway workers without public OAuth behavior", () => {
     const files = generateMcpServer([], {
       ...baseOptions,
-      runtimeMode: "emcy_hosted_worker",
-      hostedWorkerConfig: {},
-      hostedOauthConfig: {
-        provider: "sqlos",
-        authorizationServerUrl: "https://auth.example.com/sqlos/auth",
-        clientId: "todo-mcp-local",
-        resource: "https://api.example.com/todos",
-        scopes: ["openid", "profile", "todos.read", "todos.write"],
+      gatewayIntegration: {
+        provider: "emcy",
+        worker: {},
+        oauth: {
+          provider: "sqlos",
+          authorizationServerUrl: "https://auth.example.com/sqlos/auth",
+          clientId: "todo-mcp-local",
+          resource: "https://api.example.com/todos",
+          scopes: ["openid", "profile", "todos.read", "todos.write"],
+        },
       },
       toolInstructions: {
         get_api_todos: {
@@ -152,35 +154,37 @@ describe("generateMcpServer", () => {
     const readme = files["README.md"];
 
     expect(pkg.scripts.start).toBe("node build/index.js --transport=streamable-http");
-    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_hosted_worker";');
-    expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "emcy_hosted_worker";');
-    expect(serverCode).toContain("const HOSTED_WORKER_CONFIG = {");
-    expect(serverCode).toContain("const HOSTED_OAUTH_CONFIG: RuntimeHostedOauthConfig | null = {");
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";');
+    expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "emcy_gateway_worker";');
+    expect(serverCode).toContain("const GATEWAY_WORKER_CONFIG = {");
+    expect(serverCode).toContain("const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = {");
     expect(serverCode).toContain("const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = {");
-    expect(serverCode).toContain("applyHostedWorkerAccessToken");
+    expect(serverCode).toContain("applyGatewayWorkerAccessToken");
     expect(transportCode).toContain('app.use("/mcp", async (c, next) => {');
     expect(transportCode).toContain("x-emcy-worker-secret");
     expect(transportCode).toContain("x-emcy-upstream-access-token");
     expect(transportCode).not.toContain("protected-resource-metadata");
     expect(envExample).toContain("EMCY_WORKER_SHARED_SECRET=change-me");
     expect(envExample).toContain("# Authorization server: https://auth.example.com/sqlos/auth");
-    expect(readme).toContain("Hosted worker runtime");
-    expect(readme).toContain("Emcy owns the public MCP URL and OAuth flow");
-    expect(readme).toContain("Hosted OAuth config: sqlos");
+    expect(readme).toContain("Gateway-enabled MCP runtime generated from an OpenAPI specification by [Emcy](https://emcy.ai).");
+    expect(readme).toContain("This runtime is meant to be used with Emcy Gateway as the public MCP and OAuth edge.");
+    expect(readme).toContain("Gateway OAuth reference: sqlos");
     expect(readme).toContain("Tool instructions configured for: get_api_todos");
   });
 
   it("does not emit invalid const assertions for empty hosted config", () => {
     const files = generateMcpServer([], {
       ...baseOptions,
-      runtimeMode: "emcy_hosted_worker",
-      hostedWorkerConfig: {},
+      gatewayIntegration: {
+        provider: "emcy",
+        worker: {},
+      },
     });
 
     const serverCode = files["src/index.ts"];
 
     expect(serverCode).toContain(
-      "const HOSTED_OAUTH_CONFIG: RuntimeHostedOauthConfig | null = null;"
+      "const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = null;"
     );
     expect(serverCode).toContain(
       "const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = {};"

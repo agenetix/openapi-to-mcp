@@ -27,6 +27,7 @@ export interface EndpointParameter {
 export interface RequestBodySchema {
   required: boolean;
   contentType: string;
+  description?: string;
   schema: JSONSchemaType;
 }
 
@@ -125,7 +126,7 @@ export interface PromptArgument {
 export type RuntimeMode =
   | "standalone_no_auth"
   | "standalone_headers"
-  | "emcy_hosted_worker";
+  | "emcy_gateway_worker";
 
 export interface UpstreamHeaderConfig {
   /** Header name to send to the upstream API on every request. */
@@ -138,7 +139,7 @@ export interface UpstreamHeaderConfig {
   defaultValue?: string;
 }
 
-export interface HostedWorkerConfig {
+export interface GatewayWorkerConfig {
   workerSecretHeader?: string;
   workerSecretEnvVar?: string;
   upstreamAccessTokenHeader?: string;
@@ -151,12 +152,28 @@ export interface ToolInstructionConfig {
   whenNotToUse?: string;
 }
 
-export interface HostedOauthConfig {
+export interface GatewayOauthConfig {
   provider?: string;
   authorizationServerUrl?: string;
   clientId?: string;
   resource?: string;
   scopes?: string[];
+}
+
+/**
+ * @deprecated Prefer `GatewayWorkerConfig`.
+ */
+export type HostedWorkerConfig = GatewayWorkerConfig;
+
+/**
+ * @deprecated Prefer `GatewayOauthConfig`.
+ */
+export type HostedOauthConfig = GatewayOauthConfig;
+
+export interface EmcyGatewayIntegrationConfig {
+  provider: "emcy";
+  oauth?: GatewayOauthConfig;
+  worker?: GatewayWorkerConfig;
 }
 
 export interface GeneratorOptions {
@@ -172,10 +189,14 @@ export interface GeneratorOptions {
    */
   localSdkPath?: string;
   /**
-   * Runtime shape for the generated output.
+   * Low-level runtime shape for the generated output.
+   * Most callers should prefer `gatewayIntegration` when they want
+   * Emcy Gateway in front of the generated server, instead of depending on
+   * Emcy-specific runtime mode names directly.
+   *
    * - standalone_no_auth: public MCP server with no upstream auth handling
    * - standalone_headers: public MCP server that injects static/custom headers for upstream calls
-   * - emcy_hosted_worker: internal worker behind Emcy-hosted MCP auth/runtime
+   * - emcy_gateway_worker: internal runtime used when the generated server sits behind Emcy Gateway/Host
    */
   runtimeMode?: RuntimeMode;
   /**
@@ -184,10 +205,14 @@ export interface GeneratorOptions {
    */
   upstreamHeaders?: UpstreamHeaderConfig[];
   /**
-   * Hosted worker mode for Emcy-hosted MCP servers.
-   * In this mode the generated runtime is an internal execution worker, not the
-   * public MCP OAuth/resource boundary. Emcy forwards a downstream app token on
-   * each request and authenticates to the worker with a shared secret.
+   * Optional integration contract for generating a runtime intended to sit
+   * behind Emcy Gateway. This is the preferred public API for Gateway-backed
+   * generation.
+   */
+  gatewayIntegration?: EmcyGatewayIntegrationConfig;
+  /**
+   * @deprecated Prefer `gatewayIntegration.worker`.
+   * Back-compat config for generated servers that use Emcy Host/Gateway.
    */
   hostedWorkerConfig?: HostedWorkerConfig;
   /**
@@ -197,9 +222,8 @@ export interface GeneratorOptions {
    */
   toolInstructions?: Record<string, ToolInstructionConfig>;
   /**
-   * Hosted OAuth metadata for Emcy-hosted workers.
-   * The private worker does not execute OAuth itself, but generated docs should
-   * still reflect the intended hosted auth configuration.
+   * @deprecated Prefer `gatewayIntegration.oauth`.
+   * Downstream OAuth metadata for generated servers that will use Emcy Gateway.
    */
   hostedOauthConfig?: HostedOauthConfig;
   /**
