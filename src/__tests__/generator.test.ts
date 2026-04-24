@@ -77,6 +77,24 @@ describe("generateMcpServer", () => {
     expect(envExample).not.toContain("OAUTH_AUTHORIZATION_SERVER");
   });
 
+  it("folds tool instructions into generated tool descriptions", () => {
+    const files = generateMcpServer([sampleTool], {
+      ...baseOptions,
+      toolInstructions: {
+        getUsers: {
+          whenToUse: "Use when the user asks to list users.",
+          whenNotToUse: "Do not use for creating users.",
+        },
+      },
+    });
+
+    const serverCode = files["src/index.ts"];
+
+    expect(serverCode).toContain("AI usage guidance:");
+    expect(serverCode).toContain("When to use: Use when the user asks to list users.");
+    expect(serverCode).toContain("When not to use: Do not use for creating users.");
+  });
+
   it("generates standalone header injection runtimes", () => {
     const files = generateMcpServer(
       [

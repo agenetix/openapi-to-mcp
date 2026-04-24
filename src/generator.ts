@@ -29,7 +29,7 @@ function isGatewayWorkerMode(runtimeMode: RuntimeMode): boolean {
 }
 
 function resolveEmcyGatewayIntegration(
-  options: GeneratorOptions
+  options: GeneratorOptions,
 ): EmcyGatewayIntegrationConfig | undefined {
   if (options.gatewayIntegration?.provider === "emcy") {
     return options.gatewayIntegration;
@@ -38,8 +38,12 @@ function resolveEmcyGatewayIntegration(
   if (options.hostedOauthConfig || options.hostedWorkerConfig) {
     return {
       provider: "emcy",
-      ...(options.hostedOauthConfig ? { oauth: options.hostedOauthConfig } : {}),
-      ...(options.hostedWorkerConfig ? { worker: options.hostedWorkerConfig } : {}),
+      ...(options.hostedOauthConfig
+        ? { oauth: options.hostedOauthConfig }
+        : {}),
+      ...(options.hostedWorkerConfig
+        ? { worker: options.hostedWorkerConfig }
+        : {}),
     };
   }
 
@@ -83,7 +87,7 @@ function formatHeaderDescription(headers: UpstreamHeaderConfig[]): string {
     .map((header) =>
       header.valuePrefix
         ? `${header.name} (${header.valuePrefix} <${header.envVar}>)`
-        : `${header.name} (<${header.envVar}>)`
+        : `${header.name} (<${header.envVar}>)`,
     )
     .join(", ");
 }
@@ -104,12 +108,12 @@ function formatGatewayOauthDescription(config?: HostedOauthConfig): string {
 }
 
 function formatToolInstructionSummary(
-  toolInstructions?: Record<string, ToolInstructionConfig>
+  toolInstructions?: Record<string, ToolInstructionConfig>,
 ): string {
   const entries = Object.entries(toolInstructions ?? {}).filter(([, config]) =>
     Object.values(config).some(
-      (value) => typeof value === "string" && value.trim().length > 0
-    )
+      (value) => typeof value === "string" && value.trim().length > 0,
+    ),
   );
 
   if (entries.length === 0) {
@@ -119,13 +123,43 @@ function formatToolInstructionSummary(
   return entries.map(([toolKey]) => toolKey).join(", ");
 }
 
+function formatToolDescriptionWithInstructions(
+  description: string,
+  instruction?: ToolInstructionConfig,
+): string {
+  if (!instruction) {
+    return description;
+  }
+
+  const sections = [
+    instruction.customInstructions?.trim()
+      ? `Custom instructions: ${instruction.customInstructions.trim()}`
+      : null,
+    instruction.whenToUse?.trim()
+      ? `When to use: ${instruction.whenToUse.trim()}`
+      : null,
+    instruction.whenNotToUse?.trim()
+      ? `When not to use: ${instruction.whenNotToUse.trim()}`
+      : null,
+    instruction.exampleUsage?.trim()
+      ? `Example usage: ${instruction.exampleUsage.trim()}`
+      : null,
+  ].filter((value): value is string => Boolean(value));
+
+  if (sections.length === 0) {
+    return description;
+  }
+
+  return `${description}\n\nAI usage guidance:\n- ${sections.join("\n- ")}`;
+}
+
 /**
  * Generate a complete MCP server from tool definitions.
  */
 export function generateMcpServer(
   tools: McpToolDefinition[],
   options: GeneratorOptions,
-  securitySchemes: Record<string, SecurityScheme> = {}
+  securitySchemes: Record<string, SecurityScheme> = {},
 ): GeneratedFiles {
   const files: GeneratedFiles = {};
 
@@ -213,7 +247,7 @@ function generateTsConfig(): string {
 function generateServerEntry(
   tools: McpToolDefinition[],
   options: GeneratorOptions,
-  securitySchemes: Record<string, SecurityScheme>
+  securitySchemes: Record<string, SecurityScheme>,
 ): string {
   const runtimeMode = getRuntimeMode(options);
   const hasHostedWorker = isGatewayWorkerMode(runtimeMode);
@@ -227,7 +261,12 @@ function generateServerEntry(
     .map(
       (tool) => `  ["${tool.name}", {
     name: "${tool.name}",
-    description: ${JSON.stringify(tool.description)},
+    description: ${JSON.stringify(
+      formatToolDescriptionWithInstructions(
+        tool.description,
+        toolInstructions?.[tool.name],
+      ),
+    )},
     inputSchema: ${JSON.stringify(tool.inputSchema)},
     method: "${tool.httpMethod}",
     pathTemplate: "${tool.pathTemplate}",
@@ -239,7 +278,7 @@ function generateServerEntry(
     },
     securitySchemes: ${JSON.stringify(tool.securitySchemes)},
     requiredScopes: ${JSON.stringify(tool.requiredScopes)},
-  }]`
+  }]`,
     )
     .join(",\n");
 
@@ -280,23 +319,23 @@ const GATEWAY_WORKER_CONFIG = {
   workerSecretHeader: process.env.EMCY_WORKER_SECRET_HEADER || ${JSON.stringify(
     gatewayIntegration?.worker?.workerSecretHeader ||
       options.hostedWorkerConfig?.workerSecretHeader ||
-      "x-emcy-worker-secret"
+      "x-emcy-worker-secret",
   )},
   workerSecretEnvVar: process.env.EMCY_WORKER_SECRET_ENV_VAR || ${JSON.stringify(
     gatewayIntegration?.worker?.workerSecretEnvVar ||
       options.hostedWorkerConfig?.workerSecretEnvVar ||
-      "EMCY_WORKER_SHARED_SECRET"
+      "EMCY_WORKER_SHARED_SECRET",
   )},
   upstreamAccessTokenHeader: process.env.EMCY_UPSTREAM_ACCESS_TOKEN_HEADER || ${JSON.stringify(
     gatewayIntegration?.worker?.upstreamAccessTokenHeader ||
       options.hostedWorkerConfig?.upstreamAccessTokenHeader ||
-      "x-emcy-upstream-access-token"
+      "x-emcy-upstream-access-token",
   )},
 };
 `
     : "";
 
-const upstreamHeaderConfig = `
+  const upstreamHeaderConfig = `
 type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";
 const RUNTIME_MODE: RuntimeMode = ${JSON.stringify(runtimeMode)};
 const UPSTREAM_HEADERS: RuntimeUpstreamHeader[] = ${JSON.stringify(configuredHeaders, null, 2)};
@@ -378,7 +417,7 @@ interface RuntimeToolInstruction {
 const securitySchemes: Record<string, unknown> = ${JSON.stringify(
     securitySchemes,
     null,
-    2
+    2,
   )};
 ${upstreamHeaderConfig}${gatewayWorkerConfigBlock}${emcyInit}
 const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = ${JSON.stringify(gatewayOauthConfig ?? null, null, 2)};
@@ -597,7 +636,7 @@ ${prompts
     description: ${JSON.stringify(prompt.description)},
     content: ${JSON.stringify(prompt.content)},
     ${prompt.arguments ? `arguments: ${JSON.stringify(prompt.arguments)},` : ""}
-  }]`
+  }]`,
   )
   .join(",\n")}
 ]);`;
@@ -795,11 +834,15 @@ ${gatewayWorkerMiddleware}
           mcp: "/mcp",
           health: "/health",
         },
-${hasHostedWorker ? `        gateway_worker: {
+${
+  hasHostedWorker
+    ? `        gateway_worker: {
           enabled: true,
           worker_secret_header: getGatewayWorkerConfig().workerSecretHeader,
           upstream_access_token_header: getGatewayWorkerConfig().upstreamAccessTokenHeader,
-        },` : `        public_server: true,`}
+        },`
+    : `        public_server: true,`
+}
       },
     });
   });
@@ -897,7 +940,7 @@ ${startupDetails}
 function generateEnvExample(
   tools: McpToolDefinition[],
   securitySchemes: Record<string, SecurityScheme>,
-  options: GeneratorOptions
+  options: GeneratorOptions,
 ): string {
   const runtimeMode = getRuntimeMode(options);
   const gatewayIntegration = resolveEmcyGatewayIntegration(options);
@@ -921,7 +964,7 @@ function generateEnvExample(
       "# Emcy Gateway worker configuration",
       "EMCY_WORKER_SHARED_SECRET=change-me",
       "# EMCY_WORKER_SECRET_HEADER=x-emcy-worker-secret",
-      "# EMCY_UPSTREAM_ACCESS_TOKEN_HEADER=x-emcy-upstream-access-token"
+      "# EMCY_UPSTREAM_ACCESS_TOKEN_HEADER=x-emcy-upstream-access-token",
     );
     if (gatewayIntegration?.oauth?.authorizationServerUrl) {
       lines.push(
@@ -931,7 +974,7 @@ function generateEnvExample(
         `# Authorization server: ${gatewayIntegration.oauth.authorizationServerUrl}`,
         `# Client ID: ${gatewayIntegration.oauth.clientId ?? ""}`,
         `# Resource: ${gatewayIntegration.oauth.resource ?? ""}`,
-        `# Scopes: ${(gatewayIntegration.oauth.scopes ?? []).join(" ")}`
+        `# Scopes: ${(gatewayIntegration.oauth.scopes ?? []).join(" ")}`,
       );
     }
   }
@@ -948,7 +991,7 @@ function generateEnvExample(
       seenEnvVars.add(header.envVar);
       if (header.valuePrefix) {
         lines.push(
-          `# ${header.name} will be sent as "${header.valuePrefix} <value>"`
+          `# ${header.name} will be sent as "${header.valuePrefix} <value>"`,
         );
       } else {
         lines.push(`# ${header.name} will be sent as-is`);
@@ -989,15 +1032,17 @@ function generateEnvExample(
 function generateReadme(
   options: GeneratorOptions,
   tools: McpToolDefinition[],
-  securitySchemes: Record<string, SecurityScheme>
+  securitySchemes: Record<string, SecurityScheme>,
 ): string {
   const runtimeMode = getRuntimeMode(options);
   const gatewayIntegration = resolveEmcyGatewayIntegration(options);
   const configuredHeaders = options.upstreamHeaders ?? [];
   const gatewayOauthSummary = formatGatewayOauthDescription(
-    gatewayIntegration?.oauth ?? options.hostedOauthConfig
+    gatewayIntegration?.oauth ?? options.hostedOauthConfig,
   );
-  const toolInstructionSummary = formatToolInstructionSummary(options.toolInstructions);
+  const toolInstructionSummary = formatToolInstructionSummary(
+    options.toolInstructions,
+  );
   const hasPrompts = options.prompts && options.prompts.length > 0;
   const promptSection = hasPrompts
     ? `
@@ -1019,7 +1064,7 @@ ${promptSection}
 This runtime is meant to be used with Emcy Gateway as the public MCP and OAuth edge.
 
 - Emcy Gateway owns the public MCP URL and OAuth flow
-- Run this runtime yourself, or use Emcy Host if you want us to run it
+- Try this runtime yourself, or use Emcy Host if you want us to run it
 - Gateway OAuth reference: ${gatewayOauthSummary}
 - Tool instructions configured for: ${toolInstructionSummary}
 - MCP clients should connect to Emcy Gateway, not directly to this runtime
@@ -1051,17 +1096,19 @@ Copy \`.env.example\` to \`.env\` and configure:
 
   const derivedSecuritySupport = Array.from(
     new Set(
-      tools.flatMap((tool) => tool.securitySchemes).map((schemeName) => {
-        const scheme = securitySchemes[schemeName];
-        if (scheme?.type === "apiKey") {
-          return `${schemeName} (API key)`;
-        }
-        if (scheme?.type === "http" && scheme.scheme === "bearer") {
-          return `${schemeName} (Bearer token)`;
-        }
-        return null;
-      })
-    )
+      tools
+        .flatMap((tool) => tool.securitySchemes)
+        .map((schemeName) => {
+          const scheme = securitySchemes[schemeName];
+          if (scheme?.type === "apiKey") {
+            return `${schemeName} (API key)`;
+          }
+          if (scheme?.type === "http" && scheme.scheme === "bearer") {
+            return `${schemeName} (Bearer token)`;
+          }
+          return null;
+        }),
+    ),
   ).filter(Boolean);
 
   return `# ${options.name}
@@ -1072,12 +1119,14 @@ ${promptSection}
 
 \`${runtimeMode}\`
 
-${runtimeMode === "standalone_headers"
-  ? `This server runs as a standalone MCP endpoint and injects static headers into upstream API calls.
+${
+  runtimeMode === "standalone_headers"
+    ? `This server runs as a standalone MCP endpoint and injects static headers into upstream API calls.
 
 - Configured headers: ${formatHeaderDescription(configuredHeaders)}
 - OpenAPI header security schemes: ${derivedSecuritySupport.length > 0 ? derivedSecuritySupport.join(", ") : "none detected"}`
-  : `This server runs as a standalone MCP endpoint with no built-in upstream authentication logic.`}
+    : `This server runs as a standalone MCP endpoint with no built-in upstream authentication logic.`
+}
 
 ## Quick Start
 
