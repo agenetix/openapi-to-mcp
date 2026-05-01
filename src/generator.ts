@@ -742,6 +742,10 @@ function getRequestAccessToken(_c: any): string | undefined {
   const gatewayWorkerMiddleware = hasHostedWorker
     ? `
   app.use("/mcp", async (c, next) => {
+    if (process.env.EMCY_ALLOW_DIRECT_MCP_CLIENTS === "true") {
+      return next();
+    }
+
     const workerConfig = getGatewayWorkerConfig();
     const expectedSecret = process.env[workerConfig.workerSecretEnvVar];
 

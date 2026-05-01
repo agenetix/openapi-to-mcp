@@ -179,6 +179,7 @@ describe("generateMcpServer", () => {
     expect(serverCode).toContain("const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = {");
     expect(serverCode).toContain("applyGatewayWorkerAccessToken");
     expect(transportCode).toContain('app.use("/mcp", async (c, next) => {');
+    expect(transportCode).toContain('process.env.EMCY_ALLOW_DIRECT_MCP_CLIENTS === "true"');
     expect(transportCode).toContain("x-emcy-worker-secret");
     expect(transportCode).toContain("x-emcy-upstream-access-token");
     expect(transportCode).not.toContain("protected-resource-metadata");
