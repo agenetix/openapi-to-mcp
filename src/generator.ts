@@ -422,6 +422,7 @@ const securitySchemes: Record<string, unknown> = ${JSON.stringify(
 ${upstreamHeaderConfig}${gatewayWorkerConfigBlock}${emcyInit}
 const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = ${JSON.stringify(gatewayOauthConfig ?? null, null, 2)};
 const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = ${JSON.stringify(toolInstructions ?? {}, null, 2)};
+const TOOL_CALL_TIMEOUT_SECONDS = Number.parseInt(process.env.EMCY_TOOL_CALL_TIMEOUT_SECONDS || "0", 10);
 const toolDefinitionMap: Map<string, RuntimeToolDefinition> = new Map([
 ${toolDefinitions}
 ]);
@@ -509,6 +510,10 @@ async function executeRequest(
     params: queryParams,
     headers,
   };
+
+  if (Number.isFinite(TOOL_CALL_TIMEOUT_SECONDS) && TOOL_CALL_TIMEOUT_SECONDS > 0) {
+    config.timeout = TOOL_CALL_TIMEOUT_SECONDS * 1000;
+  }
 
   if (def.requestBodyContentType && args.requestBody !== undefined) {
     config.data = args.requestBody;
@@ -960,6 +965,9 @@ function generateEnvExample(
     "",
     "# Server Port",
     "PORT=3000",
+    "",
+    "# Tool execution guardrail (optional)",
+    "# EMCY_TOOL_CALL_TIMEOUT_SECONDS=30",
   ];
 
   if (isGatewayWorkerMode(runtimeMode)) {
