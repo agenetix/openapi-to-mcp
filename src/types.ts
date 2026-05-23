@@ -49,6 +49,8 @@ export interface JSONSchemaType {
 
 export interface McpToolDefinition {
   name: string;
+  /** Backward-compatible names accepted for tool calls but not exposed in tools/list. */
+  aliases?: string[];
   description: string;
   inputSchema: JSONSchemaType;
   httpMethod: string;

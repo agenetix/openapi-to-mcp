@@ -8,7 +8,7 @@ import type {
   JSONSchemaType,
   EndpointParameter,
 } from "./types.js";
-import { buildToolKey } from "./tool-identity.js";
+import { buildMcpToolName, buildToolKey } from "./tool-identity.js";
 
 /**
  * Map OpenAPI endpoints to MCP tool definitions
@@ -28,6 +28,9 @@ export function mapToMcpTools(
 
 function mapEndpointToTool(endpoint: OpenAPIEndpoint): McpToolDefinition {
   const inputSchema = buildInputSchema(endpoint);
+  const name = buildMcpToolName(endpoint.operationId, endpoint.method, endpoint.path);
+  const legacyName = buildToolKey(endpoint.method, endpoint.path);
+  const aliases = legacyName === name ? [] : [legacyName];
 
   // Build description from summary and path
   let description =
@@ -37,7 +40,8 @@ function mapEndpointToTool(endpoint: OpenAPIEndpoint): McpToolDefinition {
   }
 
   return {
-    name: buildToolKey(endpoint.method, endpoint.path),
+    name,
+    aliases,
     description,
     inputSchema,
     httpMethod: endpoint.method.toLowerCase(),

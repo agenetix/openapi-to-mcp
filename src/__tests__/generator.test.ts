@@ -114,6 +114,26 @@ describe("generateMcpServer", () => {
     expect(serverCode).toContain(".sort((left, right) => left.name.localeCompare(right.name))");
   });
 
+  it("registers legacy tool aliases without exposing duplicate tools", () => {
+    const files = generateMcpServer(
+      [
+        {
+          ...sampleTool,
+          name: "rename_checklist",
+          aliases: ["patch_api_checklists_by_id"],
+        },
+      ],
+      baseOptions
+    );
+
+    const serverCode = files["src/index.ts"];
+    expect(serverCode).toContain('name: "rename_checklist"');
+    expect(serverCode).toContain('aliases: ["patch_api_checklists_by_id"]');
+    expect(serverCode).toContain("toolDefinitionMap.set(alias, toolDefinition)");
+    expect(serverCode).toContain("const toolsForClient: Tool[] = toolDefinitions");
+    expect(serverCode).not.toContain("Array.from(toolDefinitionMap.values())");
+  });
+
   it("emits a Claude web readiness warning when generated tool count exceeds 20", () => {
     const manyTools = Array.from({ length: 21 }, (_, index) => ({
       ...sampleTool,
@@ -290,8 +310,8 @@ describe("generateMcpServer", () => {
     );
 
     const serverCode = files["src/index.ts"];
-    expect(serverCode).toContain('["getUsers"');
-    expect(serverCode).toContain('["createUser"');
+    expect(serverCode).toContain('name: "getUsers"');
+    expect(serverCode).toContain('name: "createUser"');
     expect(serverCode).toContain('requestBodyContentType: "application/json"');
   });
 

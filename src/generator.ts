@@ -153,6 +153,21 @@ function formatToolDescriptionWithInstructions(
   return `${description}\n\nAI usage guidance:\n- ${sections.join("\n- ")}`;
 }
 
+function getToolInstructions(
+  tool: McpToolDefinition,
+  toolInstructions?: Record<string, ToolInstructionConfig>,
+): ToolInstructionConfig | undefined {
+  if (!toolInstructions) {
+    return undefined;
+  }
+
+  const aliasInstruction = tool.aliases
+    ?.map((alias) => toolInstructions[alias])
+    .find((instruction): instruction is ToolInstructionConfig => Boolean(instruction));
+
+  return toolInstructions[tool.name] ?? aliasInstruction;
+}
+
 /**
  * Generate a complete MCP server from tool definitions.
  */
@@ -259,12 +274,13 @@ function generateServerEntry(
 
   const toolDefinitions = tools
     .map(
-      (tool) => `  ["${tool.name}", {
+      (tool) => `  {
     name: "${tool.name}",
+    aliases: ${JSON.stringify(tool.aliases ?? [])},
     description: ${JSON.stringify(
       formatToolDescriptionWithInstructions(
         tool.description,
-        toolInstructions?.[tool.name],
+        getToolInstructions(tool, toolInstructions),
       ),
     )},
     inputSchema: ${JSON.stringify(tool.inputSchema)},
@@ -278,7 +294,7 @@ function generateServerEntry(
     },
     securitySchemes: ${JSON.stringify(tool.securitySchemes)},
     requiredScopes: ${JSON.stringify(tool.requiredScopes)},
-  }]`,
+  }`,
     )
     .join(",\n");
 
@@ -384,6 +400,7 @@ interface RuntimeToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  aliases: string[];
   method: string;
   pathTemplate: string;
   parameters: { name: string; in: string; required: boolean }[];
@@ -423,9 +440,16 @@ ${upstreamHeaderConfig}${gatewayWorkerConfigBlock}${emcyInit}
 const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = ${JSON.stringify(gatewayOauthConfig ?? null, null, 2)};
 const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = ${JSON.stringify(toolInstructions ?? {}, null, 2)};
 const TOOL_CALL_TIMEOUT_SECONDS = Number.parseInt(process.env.EMCY_TOOL_CALL_TIMEOUT_SECONDS || "0", 10);
-const toolDefinitionMap: Map<string, RuntimeToolDefinition> = new Map([
+const toolDefinitions: RuntimeToolDefinition[] = [
 ${toolDefinitions}
-]);
+];
+const toolDefinitionMap: Map<string, RuntimeToolDefinition> = new Map();
+for (const toolDefinition of toolDefinitions) {
+  toolDefinitionMap.set(toolDefinition.name, toolDefinition);
+  for (const alias of toolDefinition.aliases) {
+    toolDefinitionMap.set(alias, toolDefinition);
+  }
+}
 ${promptDefinitions}
 
 export function createServer(getUpstreamAccessToken?: () => string | undefined): Server {
@@ -435,7 +459,7 @@ export function createServer(getUpstreamAccessToken?: () => string | undefined):
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const toolsForClient: Tool[] = Array.from(toolDefinitionMap.values())
+    const toolsForClient: Tool[] = toolDefinitions
       .sort((left, right) => left.name.localeCompare(right.name))
       .map((def) => ({
         name: def.name,
