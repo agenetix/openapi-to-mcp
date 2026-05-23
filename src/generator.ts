@@ -403,7 +403,13 @@ interface RuntimeToolDefinition {
   aliases: string[];
   method: string;
   pathTemplate: string;
-  parameters: { name: string; in: string; required: boolean }[];
+  parameters: {
+    name: string;
+    in: string;
+    required: boolean;
+    description?: string;
+    schema?: Record<string, unknown>;
+  }[];
   requestBodyContentType?: string;
   securitySchemes: string[];
   requiredScopes: string[];

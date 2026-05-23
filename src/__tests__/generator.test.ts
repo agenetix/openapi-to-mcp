@@ -315,6 +315,33 @@ describe("generateMcpServer", () => {
     expect(serverCode).toContain('requestBodyContentType: "application/json"');
   });
 
+  it("types generated OpenAPI parameters with optional schemas", () => {
+    const files = generateMcpServer(
+      [
+        {
+          ...sampleTool,
+          name: "getUser",
+          pathTemplate: "/users/{id}",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              description: "User id",
+              schema: { type: "string", format: "uuid" },
+            },
+          ],
+        },
+      ],
+      baseOptions
+    );
+
+    const serverCode = files["src/index.ts"];
+    expect(serverCode).toContain("description?: string;");
+    expect(serverCode).toContain("schema?: Record<string, unknown>;");
+    expect(serverCode).toContain('"schema":{"type":"string","format":"uuid"}');
+  });
+
   it("generates prompt handlers when prompts are configured", () => {
     const files = generateMcpServer([], {
       ...baseOptions,
