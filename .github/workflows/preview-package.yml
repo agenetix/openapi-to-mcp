@@ -84,7 +84,15 @@ jobs:
           npm publish --access public --tag "${{ steps.preview.outputs.tag }}"
 
       - name: Verify preview package
-        run: npm view "${{ steps.preview.outputs.package_ref }}" version
+        run: |
+          for attempt in {1..12}; do
+            if npm view "${{ steps.preview.outputs.package_ref }}" version; then
+              exit 0
+            fi
+            echo "Preview package is not visible in npm yet; retrying ($attempt/12)."
+            sleep 5
+          done
+          npm view "${{ steps.preview.outputs.package_ref }}" version
 
       - name: Comment package preview
         uses: actions/github-script@v7
