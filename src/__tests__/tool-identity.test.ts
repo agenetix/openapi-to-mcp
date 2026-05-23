@@ -4,6 +4,7 @@ import {
   buildDisplayName,
   buildToolKey,
   buildWorkspaceToolName,
+  MAX_TOOL_KEY_LENGTH,
 } from "../tool-identity.js";
 
 interface ToolNamingFixture {
@@ -32,6 +33,21 @@ describe("tool identity", () => {
       expect(buildWorkspaceToolName(fixture.serverSlug, fixture.toolKey)).toBe(
         fixture.workspaceToolName,
       );
+    }
+  });
+
+  it("keeps generated tool names within leading hosted-client limits", () => {
+    const longToolKeys = [
+      buildToolKey("POST", "/api/organizations/current/invitations/{invitationId}/resend"),
+      buildToolKey("POST", "/api/organizations/current/invitations/{invitationId}/revoke"),
+      buildToolKey(
+        "GET",
+        "/segment-0/segment-1/segment-2/segment-3/segment-4/segment-5/segment-6/segment-7/segment-8/segment-9/segment-10/segment-11/segment-12/segment-13/segment-14/segment-15/segment-16/segment-17/segment-18/segment-19/segment-20/segment-21/segment-22/segment-23/segment-24/segment-25/segment-26/segment-27/segment-28/segment-29",
+      ),
+    ];
+
+    for (const toolKey of longToolKeys) {
+      expect(toolKey.length).toBeLessThanOrEqual(MAX_TOOL_KEY_LENGTH);
     }
   });
 });
