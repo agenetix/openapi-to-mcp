@@ -146,16 +146,16 @@ describe('End-to-end generation', () => {
     const serverCode = files['src/index.ts'];
     
     // Verify all tools are in the generated code
-    expect(serverCode).toContain('["get_orders"');
-    expect(serverCode).toContain('["post_orders"');
-    expect(serverCode).toContain('["get_orders_by_id"');
-    expect(serverCode).toContain('["delete_orders_by_id"');
-    expect(serverCode).toContain('["get_products"');
-    expect(serverCode).toContain('["post_products"');
-    expect(serverCode).toContain('["get_products_by_id"');
+    expect(serverCode).toContain('name: "get_orders"');
+    expect(serverCode).toContain('name: "post_orders"');
+    expect(serverCode).toContain('name: "get_orders_by_id"');
+    expect(serverCode).toContain('name: "delete_orders_by_id"');
+    expect(serverCode).toContain('name: "get_products"');
+    expect(serverCode).toContain('name: "post_products"');
+    expect(serverCode).toContain('name: "get_products_by_id"');
     
     // Verify the toolDefinitionMap is not empty
-    expect(serverCode).not.toMatch(/const toolDefinitionMap.*=.*new Map\(\[\s*\]\)/);
+    expect(serverCode).not.toMatch(/const toolDefinitions: RuntimeToolDefinition\[] = \[\s*\]/);
   });
 
   it('should filter endpoints when enabledPaths is provided', async () => {

@@ -153,6 +153,21 @@ function formatToolDescriptionWithInstructions(
   return `${description}\n\nAI usage guidance:\n- ${sections.join("\n- ")}`;
 }
 
+function getToolInstructions(
+  tool: McpToolDefinition,
+  toolInstructions?: Record<string, ToolInstructionConfig>,
+): ToolInstructionConfig | undefined {
+  if (!toolInstructions) {
+    return undefined;
+  }
+
+  const aliasInstruction = tool.aliases
+    ?.map((alias) => toolInstructions[alias])
+    .find((instruction): instruction is ToolInstructionConfig => Boolean(instruction));
+
+  return toolInstructions[tool.name] ?? aliasInstruction;
+}
+
 /**
  * Generate a complete MCP server from tool definitions.
  */
@@ -166,7 +181,7 @@ export function generateMcpServer(
   files["package.json"] = generatePackageJson(options);
   files["tsconfig.json"] = generateTsConfig();
   files["src/index.ts"] = generateServerEntry(tools, options, securitySchemes);
-  files["src/transport.ts"] = generateTransport(options);
+  files["src/transport.ts"] = generateTransport(options, tools.length);
   files[".env.example"] = generateEnvExample(tools, securitySchemes, options);
   files["README.md"] = generateReadme(options, tools, securitySchemes);
 
@@ -259,12 +274,13 @@ function generateServerEntry(
 
   const toolDefinitions = tools
     .map(
-      (tool) => `  ["${tool.name}", {
+      (tool) => `  {
     name: "${tool.name}",
+    aliases: ${JSON.stringify(tool.aliases ?? [])},
     description: ${JSON.stringify(
       formatToolDescriptionWithInstructions(
         tool.description,
-        toolInstructions?.[tool.name],
+        getToolInstructions(tool, toolInstructions),
       ),
     )},
     inputSchema: ${JSON.stringify(tool.inputSchema)},
@@ -278,7 +294,7 @@ function generateServerEntry(
     },
     securitySchemes: ${JSON.stringify(tool.securitySchemes)},
     requiredScopes: ${JSON.stringify(tool.requiredScopes)},
-  }]`,
+  }`,
     )
     .join(",\n");
 
@@ -384,9 +400,16 @@ interface RuntimeToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  aliases: string[];
   method: string;
   pathTemplate: string;
-  parameters: { name: string; in: string; required: boolean }[];
+  parameters: {
+    name: string;
+    in: string;
+    required: boolean;
+    description?: string;
+    schema?: Record<string, unknown>;
+  }[];
   requestBodyContentType?: string;
   securitySchemes: string[];
   requiredScopes: string[];
@@ -423,9 +446,16 @@ ${upstreamHeaderConfig}${gatewayWorkerConfigBlock}${emcyInit}
 const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = ${JSON.stringify(gatewayOauthConfig ?? null, null, 2)};
 const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = ${JSON.stringify(toolInstructions ?? {}, null, 2)};
 const TOOL_CALL_TIMEOUT_SECONDS = Number.parseInt(process.env.EMCY_TOOL_CALL_TIMEOUT_SECONDS || "0", 10);
-const toolDefinitionMap: Map<string, RuntimeToolDefinition> = new Map([
+const toolDefinitions: RuntimeToolDefinition[] = [
 ${toolDefinitions}
-]);
+];
+const toolDefinitionMap: Map<string, RuntimeToolDefinition> = new Map();
+for (const toolDefinition of toolDefinitions) {
+  toolDefinitionMap.set(toolDefinition.name, toolDefinition);
+  for (const alias of toolDefinition.aliases) {
+    toolDefinitionMap.set(alias, toolDefinition);
+  }
+}
 ${promptDefinitions}
 
 export function createServer(getUpstreamAccessToken?: () => string | undefined): Server {
@@ -435,11 +465,13 @@ export function createServer(getUpstreamAccessToken?: () => string | undefined):
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const toolsForClient: Tool[] = Array.from(toolDefinitionMap.values()).map((def) => ({
-      name: def.name,
-      description: def.description,
-      inputSchema: def.inputSchema as Tool["inputSchema"],
-    }));
+    const toolsForClient: Tool[] = toolDefinitions
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map((def) => ({
+        name: def.name,
+        description: def.description,
+        inputSchema: def.inputSchema as Tool["inputSchema"],
+      }));
     return { tools: toolsForClient };
   });
 
@@ -698,7 +730,7 @@ function generatePromptHandlers(): string {
   );`;
 }
 
-function generateTransport(options: GeneratorOptions): string {
+function generateTransport(options: GeneratorOptions, toolCount: number): string {
   const runtimeMode = getRuntimeMode(options);
   const hasHostedWorker = isGatewayWorkerMode(runtimeMode);
 
@@ -807,28 +839,165 @@ const { WebStandardStreamableHTTPServerTransport } = await import(
 
 const transports: Map<string, InstanceType<typeof WebStandardStreamableHTTPServerTransport>> = new Map();
 const sessionTokens: Map<string, { current: string }> = new Map();
+const DEFAULT_MCP_PROTOCOL_VERSION = process.env.MCP_PROTOCOL_VERSION || "2025-11-25";
+const GENERATED_TOOL_COUNT = ${toolCount};
+const CLAUDE_WEB_RECOMMENDED_TOOL_LIMIT = 20;
+const MCP_CORS_HEADERS = [
+  "Content-Type",
+  "Accept",
+  "Authorization",
+  "MCP-Protocol-Version",
+  "Mcp-Method",
+  "Mcp-Name",
+  "Mcp-Param-*",
+  "mcp-session-id",
+  "Last-Event-ID",
+  "x-emcy-worker-secret",
+  "x-emcy-upstream-access-token",
+];
+const MCP_EXPOSE_HEADERS = [
+  "MCP-Protocol-Version",
+  "Mcp-Method",
+  "Mcp-Name",
+  "mcp-session-id",
+];
 ${requestTokenResolver}
+
+function parseAllowedOrigins(): Set<string> {
+  return new Set(
+    (process.env.MCP_ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+  );
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) {
+    return true;
+  }
+
+  const allowedOrigins = parseAllowedOrigins();
+  return allowedOrigins.has("*") || allowedOrigins.has(origin) || isLoopbackOrigin(origin);
+}
+
+function resolveCorsOrigin(origin: string): string {
+  return isOriginAllowed(origin) ? origin : "";
+}
+
+function isAllowedCorsRequestHeader(header: string): boolean {
+  const normalized = header.trim().toLowerCase();
+  return normalized.length > 0 && (
+    normalized.startsWith("mcp-param-") ||
+    MCP_CORS_HEADERS.some((allowed) => allowed.toLowerCase() === normalized)
+  );
+}
+
+async function readJsonRpcEnvelope(request: Request): Promise<unknown | null> {
+  if (request.method.toUpperCase() !== "POST") {
+    return null;
+  }
+
+  try {
+    return await request.clone().json();
+  } catch {
+    return null;
+  }
+}
+
+function getJsonRpcMethod(payload: unknown): string | undefined {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+    return undefined;
+  }
+
+  const method = (payload as { method?: unknown }).method;
+  return typeof method === "string" ? method : undefined;
+}
+
+function getJsonRpcId(payload: unknown): unknown {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+    return null;
+  }
+
+  return (payload as { id?: unknown }).id ?? null;
+}
+
+function isDraftDiscoveryEnabled(): boolean {
+  return process.env.MCP_DRAFT_DISCOVERY_ENABLED === "true";
+}
+
+function buildDraftDiscoveryResponse(id: unknown) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    result: {
+      protocolVersion: DEFAULT_MCP_PROTOCOL_VERSION,
+      serverInfo: {
+        name: SERVER_NAME,
+        version: SERVER_VERSION,
+      },
+      capabilities: {
+        tools: {},
+      },
+    },
+  };
+}
 
 export async function setupStreamableHttpServer(
   port = 3000${hasHostedWorker ? ", gatewayWorkerConfig?: GatewayWorkerRuntimeConfig" : ""}
 ): Promise<Hono> {
 ${hasHostedWorker ? "  gatewayWorkerRuntimeConfig = gatewayWorkerConfig;\n" : ""}  const app = new Hono();
 
+  app.use("*", async (c, next) => {
+    const origin = c.req.header("Origin") || c.req.header("origin");
+    if (!isOriginAllowed(origin)) {
+      return c.json(
+        {
+          error: "origin_not_allowed",
+          error_description: "The request Origin is not allowed for this MCP runtime.",
+        },
+        403
+      );
+    }
+
+    await next();
+
+    c.header("MCP-Protocol-Version", DEFAULT_MCP_PROTOCOL_VERSION);
+    const methodHeader = c.req.header("Mcp-Method") || c.req.header("mcp-method");
+    if (methodHeader) {
+      c.header("Mcp-Method", methodHeader);
+    }
+    const nameHeader = c.req.header("Mcp-Name") || c.req.header("mcp-name");
+    if (nameHeader) {
+      c.header("Mcp-Name", nameHeader);
+    }
+
+    const requestedHeaders = c.req.header("Access-Control-Request-Headers");
+    if (requestedHeaders) {
+      const headers = requestedHeaders.split(",").map((header) => header.trim()).filter(Boolean);
+      if (headers.every(isAllowedCorsRequestHeader)) {
+        c.header("Access-Control-Allow-Headers", headers.join(", "));
+      }
+    }
+    c.header("Access-Control-Expose-Headers", MCP_EXPOSE_HEADERS.join(", "));
+  });
+
   app.use(
     "*",
     cors({
-      origin: "*",
+      origin: resolveCorsOrigin,
       allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
-      allowHeaders: [
-        "Content-Type",
-        "Accept",
-        "Authorization",
-        "mcp-session-id",
-        "Last-Event-ID",
-        "x-emcy-worker-secret",
-        "x-emcy-upstream-access-token",
-      ],
-      exposeHeaders: ["mcp-session-id"],
+      allowHeaders: MCP_CORS_HEADERS,
+      exposeHeaders: MCP_EXPOSE_HEADERS,
     })
   );
 ${gatewayWorkerMiddleware}
@@ -842,6 +1011,15 @@ ${gatewayWorkerMiddleware}
         endpoints: {
           mcp: "/mcp",
           health: "/health",
+        },
+        protocolVersion: DEFAULT_MCP_PROTOCOL_VERSION,
+        draftDiscovery: isDraftDiscoveryEnabled(),
+        toolCount: GENERATED_TOOL_COUNT,
+        client_readiness: {
+          claude_web: {
+            recommended_tool_limit: CLAUDE_WEB_RECOMMENDED_TOOL_LIMIT,
+            status: GENERATED_TOOL_COUNT > CLAUDE_WEB_RECOMMENDED_TOOL_LIMIT ? "too_many_tools" : "ok",
+          },
         },
 ${
   hasHostedWorker
@@ -857,6 +1035,25 @@ ${
   });
 
   app.all("/mcp", async (c) => {
+    const payload = await readJsonRpcEnvelope(c.req.raw);
+    if (Array.isArray(payload)) {
+      return c.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: {
+            code: -32600,
+            message: "JSON-RPC batch requests are not supported by this MCP runtime.",
+          },
+        },
+        400
+      );
+    }
+
+    if (isDraftDiscoveryEnabled() && getJsonRpcMethod(payload) === "server/discover") {
+      return c.json(buildDraftDiscoveryResponse(getJsonRpcId(payload)));
+    }
+
     const sessionId = c.req.header("mcp-session-id");
 
     if (sessionId && transports.has(sessionId)) {
@@ -966,6 +1163,11 @@ function generateEnvExample(
     "# Server Port",
     "PORT=3000",
     "",
+    "# MCP HTTP compatibility",
+    "# MCP_PROTOCOL_VERSION=2025-11-25",
+    "# MCP_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000",
+    "# MCP_DRAFT_DISCOVERY_ENABLED=false",
+    "",
     "# Tool execution guardrail (optional)",
     "# EMCY_TOOL_CALL_TIMEOUT_SECONDS=30",
   ];
@@ -1056,6 +1258,9 @@ function generateReadme(
     options.toolInstructions,
   );
   const hasPrompts = options.prompts && options.prompts.length > 0;
+  const claudeToolCountNote = tools.length > 20
+    ? `\n> Claude web currently works best with 20 or fewer tools per MCP server. This generated runtime exposes ${tools.length} tools; consider disabling or splitting tools before connecting it to Claude web.\n`
+    : "";
   const promptSection = hasPrompts
     ? `
 ## Context Prompts
@@ -1071,6 +1276,7 @@ ${options.prompts!.map((prompt) => `- **${prompt.name}**: ${prompt.description}`
 
 Gateway-enabled MCP runtime generated from an OpenAPI specification by [Emcy](https://emcy.ai).
 ${promptSection}
+${claudeToolCountNote}
 ## Runtime Shape
 
 This runtime is meant to be used with Emcy Gateway as the public MCP and OAuth edge.
@@ -1095,6 +1301,9 @@ Copy \`.env.example\` to \`.env\` and configure:
 
 - \`API_BASE_URL\`: Base URL of the downstream API
 - \`PORT\`: HTTP port for the runtime
+- \`MCP_PROTOCOL_VERSION\`: Stable MCP protocol version advertised by the runtime (defaults to \`2025-11-25\`)
+- \`MCP_ALLOWED_ORIGINS\`: Comma-separated browser origins allowed to call the HTTP transport; server-to-server clients without an Origin header are allowed
+- \`MCP_DRAFT_DISCOVERY_ENABLED\`: Optional draft \`server/discover\` handler, disabled by default
 - \`EMCY_WORKER_SHARED_SECRET\`: Shared secret Emcy uses to call the runtime
 
 ## Local Validation
@@ -1127,6 +1336,7 @@ Copy \`.env.example\` to \`.env\` and configure:
 
 MCP server generated from an OpenAPI specification by [Emcy](https://emcy.ai).
 ${promptSection}
+${claudeToolCountNote}
 ## Runtime Shape
 
 \`${runtimeMode}\`
@@ -1159,6 +1369,9 @@ Copy \`.env.example\` to \`.env\`.
 
 - \`API_BASE_URL\`: Base URL of the target API
 - \`PORT\`: HTTP port for the MCP server
+- \`MCP_PROTOCOL_VERSION\`: Stable MCP protocol version advertised by the runtime (defaults to \`2025-11-25\`)
+- \`MCP_ALLOWED_ORIGINS\`: Comma-separated browser origins allowed to call the HTTP transport; server-to-server clients without an Origin header are allowed
+- \`MCP_DRAFT_DISCOVERY_ENABLED\`: Optional draft \`server/discover\` handler, disabled by default
 ${runtimeMode === "standalone_headers" ? "- Set the configured header env vars before starting the server" : ""}
 
 ## Client Usage
