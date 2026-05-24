@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 export const CURRENT_TOOL_NAMING_VERSION = 2;
 export const MAX_TOOL_KEY_LENGTH = 128;
+export const MAX_MCP_TOOL_NAME_LENGTH = 64;
 const HASH_LENGTH = 8;
 
 export function buildToolKey(method: string, path: string): string {
@@ -19,6 +20,17 @@ export function buildToolKey(method: string, path: string): string {
 
   const combined = tokens.filter(Boolean).join("_") || "tool";
   return withDeterministicHashSuffix(combined, MAX_TOOL_KEY_LENGTH);
+}
+
+export function buildMcpToolName(
+  operationId: string | undefined,
+  method: string,
+  path: string,
+): string {
+  const source = operationId && operationId.trim().length > 0
+    ? splitIdentifierWords(operationId)
+    : buildToolKey(method, path);
+  return withDeterministicHashSuffix(normalizeToken(source), MAX_MCP_TOOL_NAME_LENGTH);
 }
 
 export function buildDisplayName(operationId: string | undefined, method: string, path: string): string {
@@ -55,6 +67,13 @@ function normalizeToken(value: string): string {
     .replace(/^_+|_+$/g, "");
 
   return normalized || "part";
+}
+
+function splitIdentifierWords(value: string): string {
+  return value
+    .trim()
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2");
 }
 
 function withDeterministicHashSuffix(value: string, maxLength: number): string {

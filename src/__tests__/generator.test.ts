@@ -77,6 +77,80 @@ describe("generateMcpServer", () => {
     expect(envExample).not.toContain("OAUTH_AUTHORIZATION_SERVER");
   });
 
+  it("hardens generated HTTP transport for hosted-client compatibility without disabling stable sessions", () => {
+    const files = generateMcpServer([sampleTool], baseOptions);
+    const transportCode = files["src/transport.ts"];
+    const envExample = files[".env.example"];
+    const readme = files["README.md"];
+
+    expect(transportCode).toContain('const DEFAULT_MCP_PROTOCOL_VERSION = process.env.MCP_PROTOCOL_VERSION || "2025-11-25";');
+    expect(transportCode).toContain('"MCP-Protocol-Version"');
+    expect(transportCode).toContain('"Mcp-Method"');
+    expect(transportCode).toContain('"Mcp-Name"');
+    expect(transportCode).toContain('"Mcp-Param-*"');
+    expect(transportCode).toContain("function isOriginAllowed");
+    expect(transportCode).toContain('error: "origin_not_allowed"');
+    expect(transportCode).toContain("JSON-RPC batch requests are not supported by this MCP runtime.");
+    expect(transportCode).toContain('process.env.MCP_DRAFT_DISCOVERY_ENABLED === "true"');
+    expect(transportCode).toContain('getJsonRpcMethod(payload) === "server/discover"');
+    expect(transportCode).toContain("new WebStandardStreamableHTTPServerTransport");
+    expect(transportCode).toContain("sessionIdGenerator");
+    expect(envExample).toContain("# MCP_PROTOCOL_VERSION=2025-11-25");
+    expect(envExample).toContain("# MCP_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000");
+    expect(envExample).toContain("# MCP_DRAFT_DISCOVERY_ENABLED=false");
+    expect(readme).toContain("MCP_DRAFT_DISCOVERY_ENABLED");
+  });
+
+  it("returns generated tools in deterministic name order", () => {
+    const files = generateMcpServer(
+      [
+        { ...sampleTool, name: "zeta_tool" },
+        { ...sampleTool, name: "alpha_tool" },
+      ],
+      baseOptions
+    );
+
+    const serverCode = files["src/index.ts"];
+    expect(serverCode).toContain(".sort((left, right) => left.name.localeCompare(right.name))");
+  });
+
+  it("registers legacy tool aliases without exposing duplicate tools", () => {
+    const files = generateMcpServer(
+      [
+        {
+          ...sampleTool,
+          name: "rename_checklist",
+          aliases: ["patch_api_checklists_by_id"],
+        },
+      ],
+      baseOptions
+    );
+
+    const serverCode = files["src/index.ts"];
+    expect(serverCode).toContain('name: "rename_checklist"');
+    expect(serverCode).toContain('aliases: ["patch_api_checklists_by_id"]');
+    expect(serverCode).toContain("toolDefinitionMap.set(alias, toolDefinition)");
+    expect(serverCode).toContain("const toolsForClient: Tool[] = toolDefinitions");
+    expect(serverCode).not.toContain("Array.from(toolDefinitionMap.values())");
+  });
+
+  it("emits a Claude web readiness warning when generated tool count exceeds 20", () => {
+    const manyTools = Array.from({ length: 21 }, (_, index) => ({
+      ...sampleTool,
+      name: `tool_${index}`,
+      pathTemplate: `/tools/${index}`,
+    }));
+
+    const files = generateMcpServer(manyTools, baseOptions);
+    const transportCode = files["src/transport.ts"];
+    const readme = files["README.md"];
+
+    expect(transportCode).toContain("const GENERATED_TOOL_COUNT = 21;");
+    expect(transportCode).toContain('status: GENERATED_TOOL_COUNT > CLAUDE_WEB_RECOMMENDED_TOOL_LIMIT ? "too_many_tools" : "ok"');
+    expect(readme).toContain("Claude web currently works best with 20 or fewer tools");
+    expect(readme).toContain("This generated runtime exposes 21 tools");
+  });
+
   it("folds tool instructions into generated tool descriptions", () => {
     const files = generateMcpServer([sampleTool], {
       ...baseOptions,
@@ -236,9 +310,36 @@ describe("generateMcpServer", () => {
     );
 
     const serverCode = files["src/index.ts"];
-    expect(serverCode).toContain('["getUsers"');
-    expect(serverCode).toContain('["createUser"');
+    expect(serverCode).toContain('name: "getUsers"');
+    expect(serverCode).toContain('name: "createUser"');
     expect(serverCode).toContain('requestBodyContentType: "application/json"');
+  });
+
+  it("types generated OpenAPI parameters with optional schemas", () => {
+    const files = generateMcpServer(
+      [
+        {
+          ...sampleTool,
+          name: "getUser",
+          pathTemplate: "/users/{id}",
+          parameters: [
+            {
+              name: "id",
+              in: "path",
+              required: true,
+              description: "User id",
+              schema: { type: "string", format: "uuid" },
+            },
+          ],
+        },
+      ],
+      baseOptions
+    );
+
+    const serverCode = files["src/index.ts"];
+    expect(serverCode).toContain("description?: string;");
+    expect(serverCode).toContain("schema?: Record<string, unknown>;");
+    expect(serverCode).toContain('"schema":{"type":"string","format":"uuid"}');
   });
 
   it("generates prompt handlers when prompts are configured", () => {

@@ -26,6 +26,7 @@ describe('mapToMcpTools', () => {
     expect(tools).toHaveLength(1);
     expect(tools[0]).toEqual({
       name: 'get_users',
+      aliases: [],
       description: 'Get all users',
       inputSchema: { type: 'object', properties: {} },
       httpMethod: 'get',
@@ -225,7 +226,26 @@ describe('mapToMcpTools', () => {
     const tools = mapToMcpTools(endpoints);
 
     expect(tools).toHaveLength(3);
-    expect(tools.map(t => t.name)).toEqual(['get_users', 'post_users', 'get_users_by_id']);
+    expect(tools.map(t => t.name)).toEqual(['get_users', 'create_user', 'get_user']);
+  });
+
+  it('should expose operationId names while accepting path-derived aliases', () => {
+    const endpoints: OpenAPIEndpoint[] = [
+      {
+        operationId: 'rename_checklist',
+        method: 'PATCH',
+        path: '/api/checklists/{id}',
+        parameters: [],
+        securitySchemes: [],
+        requiredScopes: [],
+        tags: [],
+      },
+    ];
+
+    const tools = mapToMcpTools(endpoints);
+
+    expect(tools[0].name).toBe('rename_checklist');
+    expect(tools[0].aliases).toEqual(['patch_api_checklists_by_id']);
   });
 
   it('should filter by enabled paths when provided', () => {
