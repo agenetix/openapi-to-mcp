@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-export const CURRENT_TOOL_NAMING_VERSION = 2;
-export const MAX_TOOL_KEY_LENGTH = 128;
+export const CURRENT_TOOL_NAMING_VERSION = 3;
+export const MAX_TOOL_KEY_LENGTH = 64;
 export const MAX_MCP_TOOL_NAME_LENGTH = 64;
 const HASH_LENGTH = 8;
 
