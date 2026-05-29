@@ -37,25 +37,25 @@ describe("generateMcpServer", () => {
     ]);
   });
 
-  it("includes Emcy telemetry when emcyEnabled is true", () => {
-    const files = generateMcpServer([], { ...baseOptions, emcyEnabled: true });
+  it("includes MCP Stack telemetry when mcpStackTelemetryEnabled is true", () => {
+    const files = generateMcpServer([], { ...baseOptions, mcpStackTelemetryEnabled: true });
     const pkg = JSON.parse(files["package.json"]);
     const serverCode = files["src/index.ts"];
 
-    expect(pkg.dependencies["@emcy/sdk"]).toBeDefined();
-    expect(serverCode).toContain('import { EmcyTelemetry } from "@emcy/sdk"');
-    expect(serverCode).toContain("emcy.trace(");
+    expect(pkg.dependencies["@mcpstack/sdk"]).toBeDefined();
+    expect(serverCode).toContain('import { McpStackTelemetry } from "@mcpstack/sdk"');
+    expect(serverCode).toContain("mcpstack.trace(");
   });
 
   it("uses a local SDK path when provided", () => {
     const files = generateMcpServer([], {
       ...baseOptions,
-      emcyEnabled: true,
-      localSdkPath: "../emcy-sdk",
+      mcpStackTelemetryEnabled: true,
+      localMcpStackSdkPath: "../mcpstack-sdk",
     });
     const pkg = JSON.parse(files["package.json"]);
 
-    expect(pkg.dependencies["@emcy/sdk"]).toBe("file:../emcy-sdk");
+    expect(pkg.dependencies["@mcpstack/sdk"]).toBe("file:../mcpstack-sdk");
   });
 
   it("generates standalone no-auth runtimes by default", () => {
@@ -67,7 +67,7 @@ describe("generateMcpServer", () => {
 
     expect(pkg.scripts.start).toBe("node build/index.js");
     expect(pkg.dependencies.jose).toBeUndefined();
-    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";');
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "mcpstack_gateway_worker";');
     expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "standalone_no_auth";');
     expect(serverCode).not.toContain("GATEWAY_WORKER_CONFIG");
     expect(transportCode).toContain('public_server: true');
@@ -204,7 +204,7 @@ describe("generateMcpServer", () => {
     const envExample = files[".env.example"];
     const readme = files["README.md"];
 
-    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";');
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "mcpstack_gateway_worker";');
     expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "standalone_headers";');
     expect(serverCode).toContain('"envVar": "UPSTREAM_API_KEY"');
     expect(serverCode).toContain('"envVar": "UPSTREAM_TOKEN"');
@@ -218,11 +218,11 @@ describe("generateMcpServer", () => {
     expect(envExample).not.toContain("FORWARD_CLIENT_TOKEN");
   });
 
-  it("generates Emcy gateway workers without public OAuth behavior", () => {
+  it("generates MCP Stack gateway workers without public OAuth behavior", () => {
     const files = generateMcpServer([], {
       ...baseOptions,
       gatewayIntegration: {
-        provider: "emcy",
+        provider: "mcpstack",
         worker: {},
         oauth: {
           provider: "sqlos",
@@ -246,21 +246,21 @@ describe("generateMcpServer", () => {
     const readme = files["README.md"];
 
     expect(pkg.scripts.start).toBe("node build/index.js --transport=streamable-http");
-    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";');
-    expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "emcy_gateway_worker";');
+    expect(serverCode).toContain('type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "mcpstack_gateway_worker";');
+    expect(serverCode).toContain('const RUNTIME_MODE: RuntimeMode = "mcpstack_gateway_worker";');
     expect(serverCode).toContain("const GATEWAY_WORKER_CONFIG = {");
     expect(serverCode).toContain("const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = {");
     expect(serverCode).toContain("const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = {");
     expect(serverCode).toContain("applyGatewayWorkerAccessToken");
     expect(transportCode).toContain('app.use("/mcp", async (c, next) => {');
-    expect(transportCode).toContain('process.env.EMCY_ALLOW_DIRECT_MCP_CLIENTS === "true"');
-    expect(transportCode).toContain("x-emcy-worker-secret");
-    expect(transportCode).toContain("x-emcy-upstream-access-token");
+    expect(transportCode).toContain('process.env.MCPSTACK_ALLOW_DIRECT_MCP_CLIENTS === "true"');
+    expect(transportCode).toContain("x-mcpstack-worker-secret");
+    expect(transportCode).toContain("x-mcpstack-upstream-access-token");
     expect(transportCode).not.toContain("protected-resource-metadata");
-    expect(envExample).toContain("EMCY_WORKER_SHARED_SECRET=change-me");
+    expect(envExample).toContain("MCPSTACK_WORKER_SHARED_SECRET=change-me");
     expect(envExample).toContain("# Authorization server: https://auth.example.com/sqlos/auth");
-    expect(readme).toContain("Gateway-enabled MCP runtime generated from an OpenAPI specification by [Emcy](https://emcy.ai).");
-    expect(readme).toContain("This runtime is meant to be used with Emcy Gateway as the public MCP and OAuth edge.");
+    expect(readme).toContain("Gateway-enabled MCP runtime generated from an OpenAPI specification by [MCP Stack](https://mcpstack.com).");
+    expect(readme).toContain("This runtime is meant to be used with MCP Stack Gateway as the public MCP and OAuth edge.");
     expect(readme).toContain("Gateway OAuth reference: sqlos");
     expect(readme).toContain("Tool instructions configured for: get_api_todos");
   });
@@ -269,7 +269,7 @@ describe("generateMcpServer", () => {
     const files = generateMcpServer([], {
       ...baseOptions,
       gatewayIntegration: {
-        provider: "emcy",
+        provider: "mcpstack",
         worker: {},
       },
     });

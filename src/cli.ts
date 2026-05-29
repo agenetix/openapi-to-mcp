@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * @emcy/openapi-to-mcp CLI
+ * @mcpstack/openapi-to-mcp CLI
  * 
- * Convert OpenAPI specifications to MCP servers with optional Emcy telemetry.
+ * Convert OpenAPI specifications to MCP servers with optional MCP Stack telemetry.
  * 
  * Usage:
- *   npx @emcy/openapi-to-mcp generate --url https://api.example.com/openapi.json
- *   npx @emcy/openapi-to-mcp generate --url ./openapi.yaml --name my-api --emcy
+ *   npx @mcpstack/openapi-to-mcp generate --url https://api.example.com/openapi.json
+ *   npx @mcpstack/openapi-to-mcp generate --url ./openapi.yaml --name my-api --mcpstack-telemetry
  */
 
 import { parseArgs } from 'node:util';
@@ -25,10 +25,10 @@ import {
 const VERSION = '0.1.0';
 
 const HELP = `
-@emcy/openapi-to-mcp - Convert OpenAPI specs to MCP servers
+@mcpstack/openapi-to-mcp - Convert OpenAPI specs to MCP servers
 
 USAGE:
-  npx @emcy/openapi-to-mcp <command> [options]
+  npx @mcpstack/openapi-to-mcp <command> [options]
 
 COMMANDS:
   generate    Generate an MCP server from an OpenAPI specification
@@ -39,40 +39,40 @@ GENERATE OPTIONS:
   --url, -u       URL or file path to OpenAPI specification (required)
   --name, -n      Name for the generated MCP server (default: from spec title)
   --output, -o    Output directory (default: ./<name>-mcp-server)
- --emcy, -e      Enable Emcy telemetry integration
+  --mcpstack-telemetry, -e      Enable MCP Stack telemetry integration
   --base-url, -b  Override base URL for API calls
   --version       Version string for the server (default: from spec)
   --force, -f     Overwrite existing output directory
-  --local-sdk     Path to local @emcy/sdk for development (uses file: reference)
+  --local-sdk     Path to local @mcpstack/sdk for development (uses file: reference)
   --prompts-json  JSON array of prompt definitions for MCP prompts feature
   --tool-instructions-json  JSON object keyed by tool key for tool-specific guidance
   --mode          Low-level runtime mode:
                   standalone-no-auth | standalone-headers
-                  Use --use-emcy-gateway when you want Emcy Gateway to be the public edge.
-  --use-emcy-gateway
-                  Generate a server preconfigured to use Emcy Gateway as the public MCP/OAuth edge
+                  Use --use-mcpstack-gateway when you want MCP Stack Gateway to be the public edge.
+  --use-mcpstack-gateway
+                  Generate a server preconfigured to use MCP Stack Gateway as the public MCP/OAuth edge
   --header        Upstream header mapping in the form Header-Name=ENV_VAR
                   Repeatable. Applies to standalone-headers and Gateway-enabled generated servers.
-  --gateway-provider        Emcy Gateway OAuth provider recipe label
+  --gateway-provider        MCP Stack Gateway OAuth provider recipe label
   --gateway-auth-server-url Downstream OAuth issuer or metadata base URL
-  --gateway-client-id       Downstream client ID Emcy should use
+  --gateway-client-id       Downstream client ID MCP Stack should use
   --gateway-resource        Downstream API resource / audience
   --gateway-scopes          Comma or space separated downstream scopes
 EXAMPLES:
   # Generate from a URL
-  npx @emcy/openapi-to-mcp generate --url https://petstore.swagger.io/v2/swagger.json
+  npx @mcpstack/openapi-to-mcp generate --url https://petstore.swagger.io/v2/swagger.json
 
-  # Generate from a local file with Emcy telemetry
-  npx @emcy/openapi-to-mcp generate --url ./openapi.yaml --name my-api --emcy
+  # Generate from a local file with MCP Stack telemetry
+  npx @mcpstack/openapi-to-mcp generate --url ./openapi.yaml --name my-api --mcpstack-telemetry
 
   # Generate with custom output directory
-  npx @emcy/openapi-to-mcp generate --url ./api.json -o ./my-mcp-server
+  npx @mcpstack/openapi-to-mcp generate --url ./api.json -o ./my-mcp-server
 
   # Generate a standalone MCP server that injects API key headers upstream
-  npx @emcy/openapi-to-mcp generate --url ./api.json --mode standalone-headers --header X-API-Key=UPSTREAM_API_KEY
+  npx @mcpstack/openapi-to-mcp generate --url ./api.json --mode standalone-headers --header X-API-Key=UPSTREAM_API_KEY
 
-  # Generate a server that will use Emcy Gateway as the public edge
-  npx @emcy/openapi-to-mcp generate --url ./api.json --use-emcy-gateway \\
+  # Generate a server that will use MCP Stack Gateway as the public edge
+  npx @mcpstack/openapi-to-mcp generate --url ./api.json --use-mcpstack-gateway \\
     --gateway-provider sqlos \\
     --gateway-auth-server-url https://auth.example.com/sqlos/auth \\
     --gateway-client-id todo-mcp-local \\
@@ -80,7 +80,7 @@ EXAMPLES:
     --gateway-scopes "openid profile email offline_access todos.read todos.write"
 
   # Validate an OpenAPI spec
-  npx @emcy/openapi-to-mcp validate --url https://api.example.com/openapi.json
+  npx @mcpstack/openapi-to-mcp validate --url https://api.example.com/openapi.json
 `;
 
 async function main() {
@@ -93,7 +93,7 @@ async function main() {
   }
 
   if (command === '--version' || command === '-v') {
-    console.log(`@emcy/openapi-to-mcp v${VERSION}`);
+    console.log(`@mcpstack/openapi-to-mcp v${VERSION}`);
     process.exit(0);
   }
 
@@ -151,15 +151,15 @@ async function runGenerate(args: string[]) {
       url: { type: 'string', short: 'u' },
       name: { type: 'string', short: 'n' },
       output: { type: 'string', short: 'o' },
-      emcy: { type: 'boolean', short: 'e', default: false },
+      'mcpstack-telemetry': { type: 'boolean', short: 'e', default: false },
       'base-url': { type: 'string', short: 'b' },
       version: { type: 'string' },
       force: { type: 'boolean', short: 'f', default: false },
-      'local-sdk': { type: 'string' },  // Path to local @emcy/sdk for dev
+      'local-sdk': { type: 'string' },  // Path to local @mcpstack/sdk for dev
       'prompts-json': { type: 'string' },  // JSON array of prompt definitions
       'tool-instructions-json': { type: 'string' },
       mode: { type: 'string' },
-      'use-emcy-gateway': { type: 'boolean', default: false },
+      'use-mcpstack-gateway': { type: 'boolean', default: false },
       header: { type: 'string', multiple: true },
       'gateway-provider': { type: 'string' },
       'gateway-auth-server-url': { type: 'string' },
@@ -172,11 +172,11 @@ async function runGenerate(args: string[]) {
 
   if (!values.url) {
     console.error('Error: --url is required');
-    console.log('Usage: npx @emcy/openapi-to-mcp generate --url <openapi-url-or-path>');
+    console.log('Usage: npx @mcpstack/openapi-to-mcp generate --url <openapi-url-or-path>');
     process.exit(1);
   }
 
-  console.log(`\n🔧 @emcy/openapi-to-mcp Generator\n`);
+  console.log(`\n🔧 @mcpstack/openapi-to-mcp Generator\n`);
   console.log(`Loading OpenAPI spec from: ${values.url}`);
 
   try {
@@ -215,17 +215,18 @@ async function runGenerate(args: string[]) {
 
     console.log(`\nGenerating MCP server: ${serverName}`);
     console.log(`  Output: ${resolvedOutput}`);
-    console.log(`  Emcy Telemetry: ${values.emcy ? 'enabled' : 'disabled'}`);
+    const telemetryEnabled = values['mcpstack-telemetry'] === true;
+    console.log(`  MCP Stack Telemetry: ${telemetryEnabled ? 'enabled' : 'disabled'}`);
     console.log(
       `  Runtime Shape: ${
         parsedConfig.gatewayIntegration
-          ? "server configured to use Emcy Gateway as the public edge"
+          ? "server configured to use MCP Stack Gateway as the public edge"
           : parsedConfig.runtimeMode === "standalone_headers"
             ? "standalone server with injected upstream headers"
             : "standalone public server"
       }`
     );
-    console.log(`  Emcy Gateway: ${parsedConfig.gatewayIntegration ? 'enabled' : 'disabled'}`);
+    console.log(`  MCP Stack Gateway: ${parsedConfig.gatewayIntegration ? 'enabled' : 'disabled'}`);
     if (values['local-sdk']) {
       console.log(`  Local SDK: ${values['local-sdk']}`);
     }
@@ -252,8 +253,8 @@ async function runGenerate(args: string[]) {
           name: serverName,
           version: values.version || parsed.version || '1.0.0',
           baseUrl: values['base-url'] || parsed.baseUrl || 'http://localhost:3000',
-          emcyEnabled: values.emcy || false,
-          localSdkPath: values['local-sdk'],
+          mcpStackTelemetryEnabled: telemetryEnabled,
+          localMcpStackSdkPath: values['local-sdk'],
         },
         parsedConfig
       ),
@@ -284,10 +285,10 @@ async function runGenerate(args: string[]) {
     console.log(`  npm run start:http    # For Cursor/HTTP transport`);
     console.log(`  npm start             # For Claude Desktop/stdio transport`);
 
-    if (values.emcy) {
-      console.log(`\nEmcy Telemetry:`);
-      console.log(`  Set EMCY_API_KEY in .env to enable telemetry.`);
-      console.log(`  Get your API key at https://emcy.ai/dashboard`);
+    if (telemetryEnabled) {
+      console.log(`\nMCP Stack Telemetry:`);
+      console.log(`  Set MCPSTACK_API_KEY in .env to enable telemetry.`);
+      console.log(`  Get your API key at https://mcpstack.com/dashboard`);
     }
 
     console.log('');

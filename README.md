@@ -1,11 +1,11 @@
-# @emcy/openapi-to-mcp
+# @mcpstack/openapi-to-mcp
 
 Convert OpenAPI specifications into MCP servers.
 
 Use this package when you want a quick way to turn an OpenAPI spec into a TypeScript MCP server.
-If you want Emcy Gateway in front of that server, add `--use-emcy-gateway`.
+If you want MCP Stack Gateway in front of that server, add `--use-mcpstack-gateway`.
 
-[![npm version](https://badge.fury.io/js/%40emcy%2Fopenapi-to-mcp.svg)](https://www.npmjs.com/package/@emcy/openapi-to-mcp)
+[![npm version](https://badge.fury.io/js/%40emcy%2Fopenapi-to-mcp.svg)](https://www.npmjs.com/package/@mcpstack/openapi-to-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## What it generates
@@ -24,13 +24,13 @@ Most users only need two shapes:
    - Injects static/custom headers into every upstream API request
    - Good for API keys, static bearer tokens, tenant headers, and similar patterns
 
-If you want Emcy Gateway in front of the generated server, opt into the Gateway integration:
+If you want MCP Stack Gateway in front of the generated server, opt into the Gateway integration:
 
 - the generated server stays a TypeScript MCP server
-- Emcy Gateway owns the public MCP and OAuth edge
-- Emcy Host can run the server for you if you want managed hosting
+- MCP Stack Gateway owns the public MCP and OAuth edge
+- MCP Stack Host can run the server for you if you want managed hosting
 
-FastMCP and other MCP runtimes can use Emcy Gateway too. This package is only for OpenAPI generation.
+FastMCP and other MCP runtimes can use MCP Stack Gateway too. This package is only for OpenAPI generation.
 
 The generator no longer produces standalone public OAuth resource servers and no longer supports bearer-token passthrough.
 
@@ -38,22 +38,22 @@ The generator no longer produces standalone public OAuth resource servers and no
 
 ```bash
 # Standalone MCP server for a public API
-npx @emcy/openapi-to-mcp generate \
+npx @mcpstack/openapi-to-mcp generate \
   --url https://petstore.swagger.io/v2/swagger.json \
   --mode standalone-no-auth
 
 # Standalone MCP server that injects an API key header upstream
-npx @emcy/openapi-to-mcp generate \
+npx @mcpstack/openapi-to-mcp generate \
   --url ./openapi.yaml \
   --name my-api \
   --mode standalone-headers \
   --header X-API-Key=UPSTREAM_API_KEY
 
-# Generate a server and configure it for Emcy Gateway on an OAuth-protected app
-npx @emcy/openapi-to-mcp generate \
+# Generate a server and configure it for MCP Stack Gateway on an OAuth-protected app
+npx @mcpstack/openapi-to-mcp generate \
   --url ./openapi.yaml \
   --name my-app \
-  --use-emcy-gateway \
+  --use-mcpstack-gateway \
   --gateway-provider sqlos \
   --gateway-auth-server-url https://auth.example.com/sqlos/auth \
   --gateway-client-id todo-mcp-local \
@@ -66,7 +66,7 @@ npx @emcy/openapi-to-mcp generate \
 Use it directly with `npx` or install globally:
 
 ```bash
-npm install -g @emcy/openapi-to-mcp
+npm install -g @mcpstack/openapi-to-mcp
 ```
 
 ## Commands
@@ -74,7 +74,7 @@ npm install -g @emcy/openapi-to-mcp
 ### `generate`
 
 ```bash
-npx @emcy/openapi-to-mcp generate [options]
+npx @mcpstack/openapi-to-mcp generate [options]
 ```
 
 | Option | Short | Description |
@@ -84,16 +84,16 @@ npx @emcy/openapi-to-mcp generate [options]
 | `--output` | `-o` | Output directory |
 | `--base-url` | `-b` | Override the upstream API base URL |
 | `--version` |  | Runtime version string |
-| `--emcy` | `-e` | Include `@emcy/sdk` telemetry |
-| `--local-sdk` |  | Use a local `@emcy/sdk` path |
+| `--mcpstack-telemetry` | `-e` | Include `@mcpstack/sdk` telemetry |
+| `--local-sdk` |  | Use a local `@mcpstack/sdk` path |
 | `--prompts-json` |  | JSON array of MCP prompt definitions |
 | `--tool-instructions-json` |  | JSON object keyed by tool key for tool-specific AI guidance |
 | `--mode` |  | Low-level runtime mode. Most users should only pass `standalone-no-auth` or `standalone-headers` directly |
-| `--use-emcy-gateway` |  | Generate a server preconfigured to use Emcy Gateway as the public MCP/OAuth edge |
+| `--use-mcpstack-gateway` |  | Generate a server preconfigured to use MCP Stack Gateway as the public MCP/OAuth edge |
 | `--header` |  | Repeatable `Header-Name=ENV_VAR` mapping for upstream requests |
-| `--gateway-provider` |  | Emcy Gateway OAuth provider recipe label |
+| `--gateway-provider` |  | MCP Stack Gateway OAuth provider recipe label |
 | `--gateway-auth-server-url` |  | Downstream authorization server issuer or metadata base URL |
-| `--gateway-client-id` |  | Downstream client ID Emcy should use |
+| `--gateway-client-id` |  | Downstream client ID MCP Stack should use |
 | `--gateway-resource` |  | Downstream API resource / audience |
 | `--gateway-scopes` |  | Comma or space separated downstream scopes |
 | `--force` | `-f` | Overwrite the output directory |
@@ -101,7 +101,7 @@ npx @emcy/openapi-to-mcp generate [options]
 ### `validate`
 
 ```bash
-npx @emcy/openapi-to-mcp validate --url https://api.example.com/openapi.json
+npx @mcpstack/openapi-to-mcp validate --url https://api.example.com/openapi.json
 ```
 
 ## Server Modes
@@ -111,7 +111,7 @@ npx @emcy/openapi-to-mcp validate --url https://api.example.com/openapi.json
 Use this when the upstream API is public or already reachable without adding credentials from the MCP runtime.
 
 ```bash
-npx @emcy/openapi-to-mcp generate \
+npx @mcpstack/openapi-to-mcp generate \
   --url ./openapi.json \
   --mode standalone-no-auth
 ```
@@ -121,7 +121,7 @@ npx @emcy/openapi-to-mcp generate \
 Use this when every upstream request needs static headers.
 
 ```bash
-npx @emcy/openapi-to-mcp generate \
+npx @mcpstack/openapi-to-mcp generate \
   --url ./openapi.json \
   --mode standalone-headers \
   --header X-API-Key=UPSTREAM_API_KEY \
@@ -134,7 +134,7 @@ If your upstream API needs `Authorization: Bearer ...`, either:
 - pass the full header value through an env var:
 
 ```bash
-npx @emcy/openapi-to-mcp generate \
+npx @mcpstack/openapi-to-mcp generate \
   --url ./openapi.json \
   --mode standalone-headers \
   --header Authorization=UPSTREAM_AUTHORIZATION
@@ -146,14 +146,14 @@ Then set:
 UPSTREAM_AUTHORIZATION=Bearer eyJ...
 ```
 
-## Using Emcy Gateway
+## Using MCP Stack Gateway
 
-Use this when the upstream API is protected by OAuth and you want Emcy Gateway to own the public MCP URL, OAuth flow, and client-facing discovery.
+Use this when the upstream API is protected by OAuth and you want MCP Stack Gateway to own the public MCP URL, OAuth flow, and client-facing discovery.
 
 ```bash
-npx @emcy/openapi-to-mcp generate \
+npx @mcpstack/openapi-to-mcp generate \
   --url ./openapi.json \
-  --use-emcy-gateway \
+  --use-mcpstack-gateway \
   --gateway-provider sqlos \
   --gateway-auth-server-url https://auth.example.com/sqlos/auth \
   --gateway-client-id todo-mcp-local \
@@ -171,12 +171,12 @@ This is the right mode for apps protected by systems like:
 
 Legacy compatibility:
 
-- older `--mode emcy-gateway-worker` invocations still parse, but `--use-emcy-gateway` is the supported interface
+- older `--mode mcpstack-gateway-worker` invocations still parse, but `--use-mcpstack-gateway` is the supported interface
 
 Typical usage:
 
 1. generate a normal MCP server
-2. add `--use-emcy-gateway` when you want Emcy Gateway to become the public edge for that server
+2. add `--use-mcpstack-gateway` when you want MCP Stack Gateway to become the public edge for that server
 
 ## Generated Server
 
@@ -193,7 +193,7 @@ Standalone modes also support stdio for desktop clients.
 ## Programmatic Usage
 
 ```ts
-import { parseOpenAPI, mapToMcpTools, generateMcpServer } from "@emcy/openapi-to-mcp";
+import { parseOpenAPI, mapToMcpTools, generateMcpServer } from "@mcpstack/openapi-to-mcp";
 
 const parsed = await parseOpenAPI("https://api.example.com/openapi.json");
 const tools = mapToMcpTools(parsed.endpoints);
@@ -223,7 +223,7 @@ const files = generateMcpServer(
     version: "1.0.0",
     baseUrl: "https://api.example.com",
     gatewayIntegration: {
-      provider: "emcy",
+      provider: "mcpstack",
       oauth: {
         provider: "sqlos",
         authorizationServerUrl: "https://auth.example.com/sqlos/auth",
@@ -241,20 +241,20 @@ const files = generateMcpServer(
 
 - It does not host a public OAuth authorization server for MCP clients.
 - It does not support forwarding end-user bearer tokens from the MCP client to the upstream API.
-- It does not try to replace Emcy Host or Emcy Gateway for OAuth-protected apps.
+- It does not try to replace MCP Stack Host or MCP Stack Gateway for OAuth-protected apps.
 
-## Emcy
+## MCP Stack
 
-Use Emcy when you want to turn an OAuth-protected API into:
+Use MCP Stack when you want to turn an OAuth-protected API into:
 
-- a hosted runtime behind Emcy Host
+- a hosted runtime behind MCP Stack Host
 - a gateway-managed public MCP/OAuth surface
 - an embedded agent
 - a workspace integration
 - an external client surface for tools like VS Code or Claude
 
-The open-source generator handles the runtime. Emcy Host runs it. Emcy Gateway handles the public auth and orchestration layer.
+The open-source generator handles the runtime. MCP Stack Host runs it. MCP Stack Gateway handles the public auth and orchestration layer.
 
 ## License
 
-MIT © [Emcy](https://emcy.ai)
+MIT © [MCP Stack](https://mcpstack.com)

@@ -1,5 +1,5 @@
 import type {
-  EmcyGatewayIntegrationConfig,
+  McpStackGatewayIntegrationConfig,
   GatewayOauthConfig,
   GeneratorOptions,
   PromptDefinition,
@@ -9,12 +9,13 @@ import type {
 } from "./types.js";
 
 function isGatewayWorkerMode(mode: RuntimeMode): boolean {
-  return mode === "emcy_gateway_worker";
+  return mode === "mcpstack_gateway_worker";
 }
 
 export interface GenerateCliValues {
   mode?: string;
-  "use-emcy-gateway"?: boolean;
+  "use-mcpstack-gateway"?: boolean;
+  "mcpstack-telemetry"?: boolean;
   header?: string[];
   "prompts-json"?: string;
   "tool-instructions-json"?: string;
@@ -30,7 +31,7 @@ export interface ParsedGeneratorCliConfig {
   upstreamHeaders: UpstreamHeaderConfig[];
   prompts?: PromptDefinition[];
   toolInstructions?: Record<string, ToolInstructionConfig>;
-  gatewayIntegration?: EmcyGatewayIntegrationConfig;
+  gatewayIntegration?: McpStackGatewayIntegrationConfig;
   gatewayOauthConfig?: GatewayOauthConfig;
 }
 
@@ -41,12 +42,12 @@ export function parseGeneratorCliConfig(
     runtimeMode: resolveRuntimeMode(
       values.mode,
       values.header,
-      values["use-emcy-gateway"] === true
+      values["use-mcpstack-gateway"] === true
     ),
     upstreamHeaders: parseUpstreamHeaders(values.header),
     prompts: parsePrompts(values["prompts-json"]),
     toolInstructions: parseToolInstructions(values["tool-instructions-json"]),
-    gatewayIntegration: parseEmcyGatewayIntegration(values),
+    gatewayIntegration: parseMcpStackGatewayIntegration(values),
     gatewayOauthConfig: parseGatewayOauthConfig(values),
   };
 }
@@ -133,10 +134,10 @@ export function parseGatewayOauthConfig(
   };
 }
 
-export function parseEmcyGatewayIntegration(
+export function parseMcpStackGatewayIntegration(
   values: GenerateCliValues
-): EmcyGatewayIntegrationConfig | undefined {
-  const usesGateway = values["use-emcy-gateway"] === true;
+): McpStackGatewayIntegrationConfig | undefined {
+  const usesGateway = values["use-mcpstack-gateway"] === true;
   const oauth = parseGatewayOauthConfig(values);
   const explicitMode = normalizeRuntimeMode(values.mode);
   const modeUsesGateway = explicitMode ? isGatewayWorkerMode(explicitMode) : false;
@@ -146,7 +147,7 @@ export function parseEmcyGatewayIntegration(
   }
 
   return {
-    provider: "emcy",
+    provider: "mcpstack",
     ...(oauth ? { oauth } : {}),
   };
 }
@@ -154,10 +155,10 @@ export function parseEmcyGatewayIntegration(
 export function resolveRuntimeMode(
   mode: string | undefined,
   headerArgs: string[] | undefined,
-  useEmcyGateway = false
+  useMcpStackGateway = false
 ): RuntimeMode {
-  if (useEmcyGateway) {
-    return "emcy_gateway_worker";
+  if (useMcpStackGateway) {
+    return "mcpstack_gateway_worker";
   }
 
   const normalizedMode = normalizeRuntimeMode(mode);
@@ -195,14 +196,14 @@ export function normalizeRuntimeMode(
   }
 
   if (
-    normalized === "emcy-gateway-worker" ||
-    normalized === "emcy_gateway_worker"
+    normalized === "mcpstack-gateway-worker" ||
+    normalized === "mcpstack_gateway_worker"
   ) {
-    return "emcy_gateway_worker";
+    return "mcpstack_gateway_worker";
   }
 
   throw new Error(
-    `Unsupported --mode "${mode}". Supported modes: standalone-no-auth, standalone-headers. For Emcy Gateway-backed runtimes, use --use-emcy-gateway.`
+    `Unsupported --mode "${mode}". Supported modes: standalone-no-auth, standalone-headers. For MCP Stack Gateway-backed runtimes, use --use-mcpstack-gateway.`
   );
 }
 

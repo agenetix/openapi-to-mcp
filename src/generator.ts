@@ -4,11 +4,11 @@
  * Supported runtime modes:
  * - standalone_no_auth
  * - standalone_headers
- * - emcy_gateway_worker
+ * - mcpstack_gateway_worker
  */
 
 import type {
-  EmcyGatewayIntegrationConfig,
+  McpStackGatewayIntegrationConfig,
   GeneratorOptions,
   GeneratedFiles,
   HostedOauthConfig,
@@ -25,19 +25,19 @@ function normalizeRuntimeModeAlias(runtimeMode: RuntimeMode): RuntimeMode {
 }
 
 function isGatewayWorkerMode(runtimeMode: RuntimeMode): boolean {
-  return normalizeRuntimeModeAlias(runtimeMode) === "emcy_gateway_worker";
+  return normalizeRuntimeModeAlias(runtimeMode) === "mcpstack_gateway_worker";
 }
 
-function resolveEmcyGatewayIntegration(
+function resolveMcpStackGatewayIntegration(
   options: GeneratorOptions,
-): EmcyGatewayIntegrationConfig | undefined {
-  if (options.gatewayIntegration?.provider === "emcy") {
+): McpStackGatewayIntegrationConfig | undefined {
+  if (options.gatewayIntegration?.provider === "mcpstack") {
     return options.gatewayIntegration;
   }
 
   if (options.hostedOauthConfig || options.hostedWorkerConfig) {
     return {
-      provider: "emcy",
+      provider: "mcpstack",
       ...(options.hostedOauthConfig
         ? { oauth: options.hostedOauthConfig }
         : {}),
@@ -51,8 +51,8 @@ function resolveEmcyGatewayIntegration(
 }
 
 function getRuntimeMode(options: GeneratorOptions): RuntimeMode {
-  if (resolveEmcyGatewayIntegration(options)) {
-    return "emcy_gateway_worker";
+  if (resolveMcpStackGatewayIntegration(options)) {
+    return "mcpstack_gateway_worker";
   }
 
   if (options.runtimeMode) {
@@ -60,7 +60,7 @@ function getRuntimeMode(options: GeneratorOptions): RuntimeMode {
   }
 
   if (options.hostedWorkerConfig) {
-    return "emcy_gateway_worker";
+    return "mcpstack_gateway_worker";
   }
 
   if ((options.upstreamHeaders?.length ?? 0) > 0) {
@@ -216,11 +216,11 @@ function generatePackageJson(options: GeneratorOptions): string {
       axios: "^1.9.0",
       dotenv: "^16.4.5",
       hono: "^4.7.7",
-      ...(options.emcyEnabled
+      ...(options.mcpStackTelemetryEnabled
         ? {
-            "@emcy/sdk": options.localSdkPath
-              ? `file:${options.localSdkPath}`
-              : "^0.1.0",
+            "@mcpstack/sdk": options.localMcpStackSdkPath
+              ? `file:${options.localMcpStackSdkPath}`
+              : "^1.0.0",
           }
         : {}),
     },
@@ -267,7 +267,7 @@ function generateServerEntry(
   const runtimeMode = getRuntimeMode(options);
   const hasHostedWorker = isGatewayWorkerMode(runtimeMode);
   const configuredHeaders = options.upstreamHeaders ?? [];
-  const gatewayIntegration = resolveEmcyGatewayIntegration(options);
+  const gatewayIntegration = resolveMcpStackGatewayIntegration(options);
   const gatewayOauthConfig =
     gatewayIntegration?.oauth ?? options.hostedOauthConfig;
   const toolInstructions = options.toolInstructions;
@@ -298,31 +298,31 @@ function generateServerEntry(
     )
     .join(",\n");
 
-  const emcyImport = options.emcyEnabled
-    ? `import { EmcyTelemetry } from "@emcy/sdk";\n`
+  const emcyImport = options.mcpStackTelemetryEnabled
+    ? `import { McpStackTelemetry } from "@mcpstack/sdk";\n`
     : "";
 
-  const emcyInit = options.emcyEnabled
+  const emcyInit = options.mcpStackTelemetryEnabled
     ? `
-const emcy = process.env.EMCY_API_KEY
-  ? new EmcyTelemetry({
-      apiKey: process.env.EMCY_API_KEY,
-      endpoint: process.env.EMCY_TELEMETRY_URL,
-      mcpServerId: process.env.EMCY_MCP_SERVER_ID,
-      debug: process.env.EMCY_DEBUG === "true",
+const mcpstack = process.env.MCPSTACK_API_KEY
+  ? new McpStackTelemetry({
+      apiKey: process.env.MCPSTACK_API_KEY,
+      endpoint: process.env.MCPSTACK_TELEMETRY_URL,
+      mcpServerId: process.env.MCPSTACK_MCP_SERVER_ID,
+      debug: process.env.MCPSTACK_DEBUG === "true",
     })
   : null;
 
-if (emcy) {
-  emcy.setServerInfo(SERVER_NAME, SERVER_VERSION);
+if (mcpstack) {
+  mcpstack.setServerInfo(SERVER_NAME, SERVER_VERSION);
 }
 `
     : "";
 
-  const emcyTrace = options.emcyEnabled
+  const emcyTrace = options.mcpStackTelemetryEnabled
     ? `
-    if (emcy) {
-      return emcy.trace(toolName, async () =>
+    if (mcpstack) {
+      return mcpstack.trace(toolName, async () =>
         executeRequest(toolDefinition, toolArgs ?? {}, getUpstreamAccessToken?.())
       );
     }
@@ -332,27 +332,27 @@ if (emcy) {
   const gatewayWorkerConfigBlock = hasHostedWorker
     ? `
 const GATEWAY_WORKER_CONFIG = {
-  workerSecretHeader: process.env.EMCY_WORKER_SECRET_HEADER || ${JSON.stringify(
+  workerSecretHeader: process.env.MCPSTACK_WORKER_SECRET_HEADER || ${JSON.stringify(
     gatewayIntegration?.worker?.workerSecretHeader ||
       options.hostedWorkerConfig?.workerSecretHeader ||
-      "x-emcy-worker-secret",
+      "x-mcpstack-worker-secret",
   )},
-  workerSecretEnvVar: process.env.EMCY_WORKER_SECRET_ENV_VAR || ${JSON.stringify(
+  workerSecretEnvVar: process.env.MCPSTACK_WORKER_SECRET_ENV_VAR || ${JSON.stringify(
     gatewayIntegration?.worker?.workerSecretEnvVar ||
       options.hostedWorkerConfig?.workerSecretEnvVar ||
-      "EMCY_WORKER_SHARED_SECRET",
+      "MCPSTACK_WORKER_SHARED_SECRET",
   )},
-  upstreamAccessTokenHeader: process.env.EMCY_UPSTREAM_ACCESS_TOKEN_HEADER || ${JSON.stringify(
+  upstreamAccessTokenHeader: process.env.MCPSTACK_UPSTREAM_ACCESS_TOKEN_HEADER || ${JSON.stringify(
     gatewayIntegration?.worker?.upstreamAccessTokenHeader ||
       options.hostedWorkerConfig?.upstreamAccessTokenHeader ||
-      "x-emcy-upstream-access-token",
+      "x-mcpstack-upstream-access-token",
   )},
 };
 `
     : "";
 
   const upstreamHeaderConfig = `
-type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "emcy_gateway_worker";
+type RuntimeMode = "standalone_no_auth" | "standalone_headers" | "mcpstack_gateway_worker";
 const RUNTIME_MODE: RuntimeMode = ${JSON.stringify(runtimeMode)};
 const UPSTREAM_HEADERS: RuntimeUpstreamHeader[] = ${JSON.stringify(configuredHeaders, null, 2)};
 `;
@@ -375,7 +375,7 @@ const UPSTREAM_HEADERS: RuntimeUpstreamHeader[] = ${JSON.stringify(configuredHea
   return `#!/usr/bin/env node
 /**
  * MCP Runtime: ${options.name}
- * Generated by Emcy OpenAPI-to-MCP
+ * Generated by MCP Stack OpenAPI-to-MCP
  */
 
 import dotenv from "dotenv";
@@ -445,7 +445,7 @@ const securitySchemes: Record<string, unknown> = ${JSON.stringify(
 ${upstreamHeaderConfig}${gatewayWorkerConfigBlock}${emcyInit}
 const GATEWAY_OAUTH_CONFIG: RuntimeGatewayOauthConfig | null = ${JSON.stringify(gatewayOauthConfig ?? null, null, 2)};
 const TOOL_INSTRUCTIONS: Record<string, RuntimeToolInstruction> = ${JSON.stringify(toolInstructions ?? {}, null, 2)};
-const TOOL_CALL_TIMEOUT_SECONDS = Number.parseInt(process.env.EMCY_TOOL_CALL_TIMEOUT_SECONDS || "0", 10);
+const TOOL_CALL_TIMEOUT_SECONDS = Number.parseInt(process.env.MCPSTACK_TOOL_CALL_TIMEOUT_SECONDS || "0", 10);
 const toolDefinitions: RuntimeToolDefinition[] = [
 ${toolDefinitions}
 ];
@@ -625,7 +625,7 @@ function applyGatewayWorkerAccessToken(
   headers: Record<string, string>,
   upstreamAccessToken?: string
 ): void {
-  if (RUNTIME_MODE !== "emcy_gateway_worker" || !upstreamAccessToken) {
+  if (RUNTIME_MODE !== "mcpstack_gateway_worker" || !upstreamAccessToken) {
     return;
   }
 
@@ -637,7 +637,7 @@ async function main(): Promise<void> {
   const useHttp = args.includes("--transport=streamable-http");
   const port = parseInt(process.env.PORT || "3000", 10);
 
-  if (RUNTIME_MODE === "emcy_gateway_worker" || useHttp) {
+  if (RUNTIME_MODE === "mcpstack_gateway_worker" || useHttp) {
     await setupStreamableHttpServer(port${hasHostedWorker ? ", GATEWAY_WORKER_CONFIG" : ""});
     return;
   }
@@ -779,7 +779,7 @@ function getRequestAccessToken(_c: any): string | undefined {
   const gatewayWorkerMiddleware = hasHostedWorker
     ? `
   app.use("/mcp", async (c, next) => {
-    if (process.env.EMCY_ALLOW_DIRECT_MCP_CLIENTS === "true") {
+    if (process.env.MCPSTACK_ALLOW_DIRECT_MCP_CLIENTS === "true") {
       return next();
     }
 
@@ -816,7 +816,7 @@ function getRequestAccessToken(_c: any): string | undefined {
     ? `
     console.error(\`║  Mode:   Gateway-backed runtime                              ║\`);
     console.error(\`║  Header: \${getGatewayWorkerConfig().workerSecretHeader.padEnd(53)} ║\`);
-    console.error(\`║  Clients: Emcy should call this worker, not end users.      ║\`);
+    console.error(\`║  Clients: MCP Stack should call this worker, not end users.      ║\`);
 `
     : `
     console.error(\`║  Mode:   Standalone MCP server                               ║\`);
@@ -852,8 +852,8 @@ const MCP_CORS_HEADERS = [
   "Mcp-Param-*",
   "mcp-session-id",
   "Last-Event-ID",
-  "x-emcy-worker-secret",
-  "x-emcy-upstream-access-token",
+  "x-mcpstack-worker-secret",
+  "x-mcpstack-upstream-access-token",
 ];
 const MCP_EXPOSE_HEADERS = [
   "MCP-Protocol-Version",
@@ -1149,16 +1149,16 @@ function generateEnvExample(
   options: GeneratorOptions,
 ): string {
   const runtimeMode = getRuntimeMode(options);
-  const gatewayIntegration = resolveEmcyGatewayIntegration(options);
+  const gatewayIntegration = resolveMcpStackGatewayIntegration(options);
   const lines = [
     "# API Configuration",
     `API_BASE_URL=${options.baseUrl}`,
     "",
-    "# Emcy Telemetry (optional)",
-    "# EMCY_API_KEY=your-api-key-from-emcy-dashboard",
-    "# EMCY_TELEMETRY_URL=http://localhost:5140/api/v1/telemetry",
-    "# EMCY_MCP_SERVER_ID=mcp_xxxxxxxxxxxx",
-    "# EMCY_DEBUG=false",
+    "# MCP Stack Telemetry (optional)",
+    "# MCPSTACK_API_KEY=your-api-key-from-mcpstack-dashboard",
+    "# MCPSTACK_TELEMETRY_URL=http://localhost:5140/api/v1/telemetry",
+    "# MCPSTACK_MCP_SERVER_ID=mcp_xxxxxxxxxxxx",
+    "# MCPSTACK_DEBUG=false",
     "",
     "# Server Port",
     "PORT=3000",
@@ -1169,21 +1169,21 @@ function generateEnvExample(
     "# MCP_DRAFT_DISCOVERY_ENABLED=false",
     "",
     "# Tool execution guardrail (optional)",
-    "# EMCY_TOOL_CALL_TIMEOUT_SECONDS=30",
+    "# MCPSTACK_TOOL_CALL_TIMEOUT_SECONDS=30",
   ];
 
   if (isGatewayWorkerMode(runtimeMode)) {
     lines.push(
       "",
-      "# Emcy Gateway worker configuration",
-      "EMCY_WORKER_SHARED_SECRET=change-me",
-      "# EMCY_WORKER_SECRET_HEADER=x-emcy-worker-secret",
-      "# EMCY_UPSTREAM_ACCESS_TOKEN_HEADER=x-emcy-upstream-access-token",
+      "# MCP Stack Gateway worker configuration",
+      "MCPSTACK_WORKER_SHARED_SECRET=change-me",
+      "# MCPSTACK_WORKER_SECRET_HEADER=x-mcpstack-worker-secret",
+      "# MCPSTACK_UPSTREAM_ACCESS_TOKEN_HEADER=x-mcpstack-upstream-access-token",
     );
     if (gatewayIntegration?.oauth?.authorizationServerUrl) {
       lines.push(
         "",
-        "# Emcy Gateway OAuth reference",
+        "# MCP Stack Gateway OAuth reference",
         `# Provider: ${gatewayIntegration.oauth.provider ?? "manual"}`,
         `# Authorization server: ${gatewayIntegration.oauth.authorizationServerUrl}`,
         `# Client ID: ${gatewayIntegration.oauth.clientId ?? ""}`,
@@ -1249,7 +1249,7 @@ function generateReadme(
   securitySchemes: Record<string, SecurityScheme>,
 ): string {
   const runtimeMode = getRuntimeMode(options);
-  const gatewayIntegration = resolveEmcyGatewayIntegration(options);
+  const gatewayIntegration = resolveMcpStackGatewayIntegration(options);
   const configuredHeaders = options.upstreamHeaders ?? [];
   const gatewayOauthSummary = formatGatewayOauthDescription(
     gatewayIntegration?.oauth ?? options.hostedOauthConfig,
@@ -1274,18 +1274,18 @@ ${options.prompts!.map((prompt) => `- **${prompt.name}**: ${prompt.description}`
   if (isGatewayWorkerMode(runtimeMode)) {
     return `# ${options.name}
 
-Gateway-enabled MCP runtime generated from an OpenAPI specification by [Emcy](https://emcy.ai).
+Gateway-enabled MCP runtime generated from an OpenAPI specification by [MCP Stack](https://mcpstack.com).
 ${promptSection}
 ${claudeToolCountNote}
 ## Runtime Shape
 
-This runtime is meant to be used with Emcy Gateway as the public MCP and OAuth edge.
+This runtime is meant to be used with MCP Stack Gateway as the public MCP and OAuth edge.
 
-- Emcy Gateway owns the public MCP URL and OAuth flow
-- Try this runtime yourself, or use Emcy Host if you want us to run it
+- MCP Stack Gateway owns the public MCP URL and OAuth flow
+- Try this runtime yourself, or use MCP Stack Host if you want us to run it
 - Gateway OAuth reference: ${gatewayOauthSummary}
 - Tool instructions configured for: ${toolInstructionSummary}
-- MCP clients should connect to Emcy Gateway, not directly to this runtime
+- MCP clients should connect to MCP Stack Gateway, not directly to this runtime
 
 ## Quick Start
 
@@ -1304,14 +1304,14 @@ Copy \`.env.example\` to \`.env\` and configure:
 - \`MCP_PROTOCOL_VERSION\`: Stable MCP protocol version advertised by the runtime (defaults to \`2025-11-25\`)
 - \`MCP_ALLOWED_ORIGINS\`: Comma-separated browser origins allowed to call the HTTP transport; server-to-server clients without an Origin header are allowed
 - \`MCP_DRAFT_DISCOVERY_ENABLED\`: Optional draft \`server/discover\` handler, disabled by default
-- \`EMCY_WORKER_SHARED_SECRET\`: Shared secret Emcy uses to call the runtime
+- \`MCPSTACK_WORKER_SHARED_SECRET\`: Shared secret MCP Stack uses to call the runtime
 
 ## Local Validation
 
 1. Run the runtime with \`npm run start:http\`
-2. Configure Emcy Gateway to use this runtime
-3. Let Emcy Host and Gateway expose the public MCP server, OAuth flow, and client registration
-4. Validate tool calls through Emcy
+2. Configure MCP Stack Gateway to use this runtime
+3. Let MCP Stack Host and Gateway expose the public MCP server, OAuth flow, and client registration
+4. Validate tool calls through MCP Stack
 `;
   }
 
@@ -1334,7 +1334,7 @@ Copy \`.env.example\` to \`.env\` and configure:
 
   return `# ${options.name}
 
-MCP server generated from an OpenAPI specification by [Emcy](https://emcy.ai).
+MCP server generated from an OpenAPI specification by [MCP Stack](https://mcpstack.com).
 ${promptSection}
 ${claudeToolCountNote}
 ## Runtime Shape
@@ -1382,6 +1382,6 @@ ${runtimeMode === "standalone_headers" ? "- Set the configured header env vars b
 ## Notes
 
 - This generator no longer produces standalone public OAuth resource servers.
-- For user-scoped OAuth APIs generated from OpenAPI, use Emcy Gateway.
+- For user-scoped OAuth APIs generated from OpenAPI, use MCP Stack Gateway.
 `;
 }
