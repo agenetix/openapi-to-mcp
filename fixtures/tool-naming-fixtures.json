@@ -54,6 +54,15 @@
     "workspaceToolName": "sample_api__get_reports_internal_by_report_id_download_file"
   },
   {
+    "method": "POST",
+    "path": "/api/v1/x/account-connection-challenges/{id}/submit",
+    "operationId": "submitXAccountConnectionChallenge",
+    "serverSlug": "xquik-api",
+    "toolKey": "post_api_v1_x_account_connection_challenges_by_id_submit",
+    "displayName": "submitXAccountConnectionChallenge",
+    "workspaceToolName": "xquik_api__post_api_v1_x_account_connection_challenges_6a39e0d5"
+  },
+  {
     "method": "DELETE",
     "path": "/",
     "operationId": null,

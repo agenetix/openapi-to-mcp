@@ -9,6 +9,10 @@ import type { OpenAPIEndpoint, ParsedOpenAPI, EndpointParameter, RequestBodySche
 type OpenAPI3Doc = OpenAPIV3.Document | OpenAPIV3_1.Document;
 type OpenAPI3Operation = OpenAPIV3.OperationObject | OpenAPIV3_1.OperationObject;
 type OpenAPI3Parameter = OpenAPIV3.ParameterObject | OpenAPIV3_1.ParameterObject;
+type OpenAPI3ParameterInput =
+  | OpenAPI3Parameter
+  | OpenAPIV3.ReferenceObject
+  | OpenAPIV3_1.ReferenceObject;
 type OpenAPI3RequestBody = OpenAPIV3.RequestBodyObject | OpenAPIV3_1.RequestBodyObject;
 type OpenAPI3Schema = OpenAPIV3.SchemaObject | OpenAPIV3_1.SchemaObject;
 
@@ -86,17 +90,16 @@ function extractEndpoint(
   path: string,
   method: string,
   operation: OpenAPI3Operation,
-  pathParameters?: (OpenAPI3Parameter | OpenAPIV3.ReferenceObject | OpenAPIV3_1.ReferenceObject)[],
+  pathParameters?: OpenAPI3ParameterInput[],
   globalSecurity?: OpenAPIV3.SecurityRequirementObject[]
 ): OpenAPIEndpoint {
   const parameters: EndpointParameter[] = [];
   
-  // Combine path-level and operation-level parameters
-  const allParams = [...(pathParameters || []), ...(operation.parameters || [])];
+  // Operation-level parameters override matching path-level parameters.
+  const allParams = mergeParameters(pathParameters, operation.parameters);
   
   for (const param of allParams) {
-    if (isReference(param)) continue;
-    parameters.push(extractParameter(param as OpenAPI3Parameter));
+    parameters.push(extractParameter(param));
   }
   
   // Extract request body
@@ -133,6 +136,22 @@ function extractEndpoint(
     requiredScopes: [...new Set(requiredScopes)],
     tags: operation.tags || [],
   };
+}
+
+function mergeParameters(
+  pathParameters: OpenAPI3ParameterInput[] | undefined,
+  operationParameters: OpenAPI3ParameterInput[] | undefined,
+): OpenAPI3Parameter[] {
+  const parameters = new Map<string, OpenAPI3Parameter>();
+
+  for (const parameter of [...(pathParameters || []), ...(operationParameters || [])]) {
+    if (isReference(parameter)) {
+      continue;
+    }
+    parameters.set(`${parameter.in}:${parameter.name}`, parameter);
+  }
+
+  return [...parameters.values()];
 }
 
 function extractParameter(param: OpenAPI3Parameter): EndpointParameter {
