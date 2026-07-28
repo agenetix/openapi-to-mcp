@@ -211,7 +211,7 @@ function generatePackageJson(options: GeneratorOptions): string {
           dev: "tsc --watch",
         },
     dependencies: {
-      "@modelcontextprotocol/sdk": "^1.10.0",
+      "@modelcontextprotocol/sdk": "1.29.0",
       "@hono/node-server": "^1.14.1",
       axios: "^1.9.0",
       dotenv: "^16.4.5",
