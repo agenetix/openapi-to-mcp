@@ -42,8 +42,8 @@ describe("generateMcpServer", () => {
     const pkg = JSON.parse(files["package.json"]);
     const serverCode = files["src/index.ts"];
 
-    expect(pkg.dependencies["@mcpstack/sdk"]).toBeDefined();
-    expect(serverCode).toContain('import { McpStackTelemetry } from "@mcpstack/sdk"');
+    expect(pkg.dependencies["@agenetix/sdk"]).toBeDefined();
+    expect(serverCode).toContain('import { McpStackTelemetry } from "@agenetix/sdk"');
     expect(serverCode).toContain("mcpstack.trace(");
   });
 
@@ -55,7 +55,7 @@ describe("generateMcpServer", () => {
     });
     const pkg = JSON.parse(files["package.json"]);
 
-    expect(pkg.dependencies["@mcpstack/sdk"]).toBe("file:../mcpstack-sdk");
+    expect(pkg.dependencies["@agenetix/sdk"]).toBe("file:../mcpstack-sdk");
   });
 
   it("generates standalone no-auth runtimes by default", () => {

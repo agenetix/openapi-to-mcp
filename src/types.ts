@@ -185,7 +185,7 @@ export interface GeneratorOptions {
   enabledEndpoints?: Set<string>;  // Optional: filter to only these canonical tool keys
   mcpStackTelemetryEnabled?: boolean;
   /**
-   * For local development: path to local @mcpstack/sdk package.
+   * For local development: path to local @agenetix/sdk package.
    * When set, generated package.json will use "file:<path>" instead of npm version.
    * Example: "../../packages/mcpstack-sdk" or "/absolute/path/to/mcpstack-sdk"
    */
