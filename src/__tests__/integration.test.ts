@@ -140,7 +140,7 @@ describe('End-to-end generation', () => {
       name: 'sample-api-mcp',
       version: '1.0.0',
       baseUrl: 'http://localhost:5158',
-      mcpStackTelemetryEnabled: true,
+      agenetixTelemetryEnabled: true,
     });
     
     const serverCode = files['src/index.ts'];
