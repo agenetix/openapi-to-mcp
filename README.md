@@ -1,11 +1,11 @@
-# @mcpstack/openapi-to-mcp
+# @agenetix/openapi-to-mcp
 
 Convert OpenAPI specifications into MCP servers.
 
 Use this package when you want a quick way to turn an OpenAPI spec into a TypeScript MCP server.
 If you want MCP Stack Gateway in front of that server, add `--use-mcpstack-gateway`.
 
-[![npm version](https://badge.fury.io/js/%40emcy%2Fopenapi-to-mcp.svg)](https://www.npmjs.com/package/@mcpstack/openapi-to-mcp)
+[![npm version](https://badge.fury.io/js/%40emcy%2Fopenapi-to-mcp.svg)](https://www.npmjs.com/package/@agenetix/openapi-to-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## What it generates
@@ -38,19 +38,19 @@ The generator no longer produces standalone public OAuth resource servers and no
 
 ```bash
 # Standalone MCP server for a public API
-npx @mcpstack/openapi-to-mcp generate \
+npx @agenetix/openapi-to-mcp generate \
   --url https://petstore.swagger.io/v2/swagger.json \
   --mode standalone-no-auth
 
 # Standalone MCP server that injects an API key header upstream
-npx @mcpstack/openapi-to-mcp generate \
+npx @agenetix/openapi-to-mcp generate \
   --url ./openapi.yaml \
   --name my-api \
   --mode standalone-headers \
   --header X-API-Key=UPSTREAM_API_KEY
 
 # Generate a server and configure it for MCP Stack Gateway on an OAuth-protected app
-npx @mcpstack/openapi-to-mcp generate \
+npx @agenetix/openapi-to-mcp generate \
   --url ./openapi.yaml \
   --name my-app \
   --use-mcpstack-gateway \
@@ -66,7 +66,7 @@ npx @mcpstack/openapi-to-mcp generate \
 Use it directly with `npx` or install globally:
 
 ```bash
-npm install -g @mcpstack/openapi-to-mcp
+npm install -g @agenetix/openapi-to-mcp
 ```
 
 ## Commands
@@ -74,7 +74,7 @@ npm install -g @mcpstack/openapi-to-mcp
 ### `generate`
 
 ```bash
-npx @mcpstack/openapi-to-mcp generate [options]
+npx @agenetix/openapi-to-mcp generate [options]
 ```
 
 | Option | Short | Description |
@@ -84,8 +84,8 @@ npx @mcpstack/openapi-to-mcp generate [options]
 | `--output` | `-o` | Output directory |
 | `--base-url` | `-b` | Override the upstream API base URL |
 | `--version` |  | Runtime version string |
-| `--mcpstack-telemetry` | `-e` | Include `@mcpstack/sdk` telemetry |
-| `--local-sdk` |  | Use a local `@mcpstack/sdk` path |
+| `--mcpstack-telemetry` | `-e` | Include `@agenetix/sdk` telemetry |
+| `--local-sdk` |  | Use a local `@agenetix/sdk` path |
 | `--prompts-json` |  | JSON array of MCP prompt definitions |
 | `--tool-instructions-json` |  | JSON object keyed by tool key for tool-specific AI guidance |
 | `--mode` |  | Low-level runtime mode. Most users should only pass `standalone-no-auth` or `standalone-headers` directly |
@@ -101,7 +101,7 @@ npx @mcpstack/openapi-to-mcp generate [options]
 ### `validate`
 
 ```bash
-npx @mcpstack/openapi-to-mcp validate --url https://api.example.com/openapi.json
+npx @agenetix/openapi-to-mcp validate --url https://api.example.com/openapi.json
 ```
 
 ## Server Modes
@@ -111,7 +111,7 @@ npx @mcpstack/openapi-to-mcp validate --url https://api.example.com/openapi.json
 Use this when the upstream API is public or already reachable without adding credentials from the MCP runtime.
 
 ```bash
-npx @mcpstack/openapi-to-mcp generate \
+npx @agenetix/openapi-to-mcp generate \
   --url ./openapi.json \
   --mode standalone-no-auth
 ```
@@ -121,7 +121,7 @@ npx @mcpstack/openapi-to-mcp generate \
 Use this when every upstream request needs static headers.
 
 ```bash
-npx @mcpstack/openapi-to-mcp generate \
+npx @agenetix/openapi-to-mcp generate \
   --url ./openapi.json \
   --mode standalone-headers \
   --header X-API-Key=UPSTREAM_API_KEY \
@@ -134,7 +134,7 @@ If your upstream API needs `Authorization: Bearer ...`, either:
 - pass the full header value through an env var:
 
 ```bash
-npx @mcpstack/openapi-to-mcp generate \
+npx @agenetix/openapi-to-mcp generate \
   --url ./openapi.json \
   --mode standalone-headers \
   --header Authorization=UPSTREAM_AUTHORIZATION
@@ -151,7 +151,7 @@ UPSTREAM_AUTHORIZATION=Bearer eyJ...
 Use this when the upstream API is protected by OAuth and you want MCP Stack Gateway to own the public MCP URL, OAuth flow, and client-facing discovery.
 
 ```bash
-npx @mcpstack/openapi-to-mcp generate \
+npx @agenetix/openapi-to-mcp generate \
   --url ./openapi.json \
   --use-mcpstack-gateway \
   --gateway-provider sqlos \
@@ -193,7 +193,7 @@ Standalone modes also support stdio for desktop clients.
 ## Programmatic Usage
 
 ```ts
-import { parseOpenAPI, mapToMcpTools, generateMcpServer } from "@mcpstack/openapi-to-mcp";
+import { parseOpenAPI, mapToMcpTools, generateMcpServer } from "@agenetix/openapi-to-mcp";
 
 const parsed = await parseOpenAPI("https://api.example.com/openapi.json");
 const tools = mapToMcpTools(parsed.endpoints);

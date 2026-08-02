@@ -218,7 +218,7 @@ function generatePackageJson(options: GeneratorOptions): string {
       hono: "^4.7.7",
       ...(options.mcpStackTelemetryEnabled
         ? {
-            "@mcpstack/sdk": options.localMcpStackSdkPath
+            "@agenetix/sdk": options.localMcpStackSdkPath
               ? `file:${options.localMcpStackSdkPath}`
               : "^1.0.0",
           }
@@ -299,7 +299,7 @@ function generateServerEntry(
     .join(",\n");
 
   const emcyImport = options.mcpStackTelemetryEnabled
-    ? `import { McpStackTelemetry } from "@mcpstack/sdk";\n`
+    ? `import { McpStackTelemetry } from "@agenetix/sdk";\n`
     : "";
 
   const emcyInit = options.mcpStackTelemetryEnabled

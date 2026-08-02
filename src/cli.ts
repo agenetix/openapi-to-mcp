@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * @mcpstack/openapi-to-mcp CLI
+ * @agenetix/openapi-to-mcp CLI
  * 
  * Convert OpenAPI specifications to MCP servers with optional MCP Stack telemetry.
  * 
  * Usage:
- *   npx @mcpstack/openapi-to-mcp generate --url https://api.example.com/openapi.json
- *   npx @mcpstack/openapi-to-mcp generate --url ./openapi.yaml --name my-api --mcpstack-telemetry
+ *   npx @agenetix/openapi-to-mcp generate --url https://api.example.com/openapi.json
+ *   npx @agenetix/openapi-to-mcp generate --url ./openapi.yaml --name my-api --mcpstack-telemetry
  */
 
 import { parseArgs } from 'node:util';
@@ -25,10 +25,10 @@ import {
 const VERSION = '0.1.0';
 
 const HELP = `
-@mcpstack/openapi-to-mcp - Convert OpenAPI specs to MCP servers
+@agenetix/openapi-to-mcp - Convert OpenAPI specs to MCP servers
 
 USAGE:
-  npx @mcpstack/openapi-to-mcp <command> [options]
+  npx @agenetix/openapi-to-mcp <command> [options]
 
 COMMANDS:
   generate    Generate an MCP server from an OpenAPI specification
@@ -43,7 +43,7 @@ GENERATE OPTIONS:
   --base-url, -b  Override base URL for API calls
   --version       Version string for the server (default: from spec)
   --force, -f     Overwrite existing output directory
-  --local-sdk     Path to local @mcpstack/sdk for development (uses file: reference)
+  --local-sdk     Path to local @agenetix/sdk for development (uses file: reference)
   --prompts-json  JSON array of prompt definitions for MCP prompts feature
   --tool-instructions-json  JSON object keyed by tool key for tool-specific guidance
   --mode          Low-level runtime mode:
@@ -60,19 +60,19 @@ GENERATE OPTIONS:
   --gateway-scopes          Comma or space separated downstream scopes
 EXAMPLES:
   # Generate from a URL
-  npx @mcpstack/openapi-to-mcp generate --url https://petstore.swagger.io/v2/swagger.json
+  npx @agenetix/openapi-to-mcp generate --url https://petstore.swagger.io/v2/swagger.json
 
   # Generate from a local file with MCP Stack telemetry
-  npx @mcpstack/openapi-to-mcp generate --url ./openapi.yaml --name my-api --mcpstack-telemetry
+  npx @agenetix/openapi-to-mcp generate --url ./openapi.yaml --name my-api --mcpstack-telemetry
 
   # Generate with custom output directory
-  npx @mcpstack/openapi-to-mcp generate --url ./api.json -o ./my-mcp-server
+  npx @agenetix/openapi-to-mcp generate --url ./api.json -o ./my-mcp-server
 
   # Generate a standalone MCP server that injects API key headers upstream
-  npx @mcpstack/openapi-to-mcp generate --url ./api.json --mode standalone-headers --header X-API-Key=UPSTREAM_API_KEY
+  npx @agenetix/openapi-to-mcp generate --url ./api.json --mode standalone-headers --header X-API-Key=UPSTREAM_API_KEY
 
   # Generate a server that will use MCP Stack Gateway as the public edge
-  npx @mcpstack/openapi-to-mcp generate --url ./api.json --use-mcpstack-gateway \\
+  npx @agenetix/openapi-to-mcp generate --url ./api.json --use-mcpstack-gateway \\
     --gateway-provider sqlos \\
     --gateway-auth-server-url https://auth.example.com/sqlos/auth \\
     --gateway-client-id todo-mcp-local \\
@@ -80,7 +80,7 @@ EXAMPLES:
     --gateway-scopes "openid profile email offline_access todos.read todos.write"
 
   # Validate an OpenAPI spec
-  npx @mcpstack/openapi-to-mcp validate --url https://api.example.com/openapi.json
+  npx @agenetix/openapi-to-mcp validate --url https://api.example.com/openapi.json
 `;
 
 async function main() {
@@ -93,7 +93,7 @@ async function main() {
   }
 
   if (command === '--version' || command === '-v') {
-    console.log(`@mcpstack/openapi-to-mcp v${VERSION}`);
+    console.log(`@agenetix/openapi-to-mcp v${VERSION}`);
     process.exit(0);
   }
 
@@ -155,7 +155,7 @@ async function runGenerate(args: string[]) {
       'base-url': { type: 'string', short: 'b' },
       version: { type: 'string' },
       force: { type: 'boolean', short: 'f', default: false },
-      'local-sdk': { type: 'string' },  // Path to local @mcpstack/sdk for dev
+      'local-sdk': { type: 'string' },  // Path to local @agenetix/sdk for dev
       'prompts-json': { type: 'string' },  // JSON array of prompt definitions
       'tool-instructions-json': { type: 'string' },
       mode: { type: 'string' },
@@ -172,11 +172,11 @@ async function runGenerate(args: string[]) {
 
   if (!values.url) {
     console.error('Error: --url is required');
-    console.log('Usage: npx @mcpstack/openapi-to-mcp generate --url <openapi-url-or-path>');
+    console.log('Usage: npx @agenetix/openapi-to-mcp generate --url <openapi-url-or-path>');
     process.exit(1);
   }
 
-  console.log(`\n🔧 @mcpstack/openapi-to-mcp Generator\n`);
+  console.log(`\n🔧 @agenetix/openapi-to-mcp Generator\n`);
   console.log(`Loading OpenAPI spec from: ${values.url}`);
 
   try {
