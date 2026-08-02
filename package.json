@@ -50,10 +50,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agenetix/mcpstack-openapi-to-mcp.git"
+    "url": "git+https://github.com/agenetix/openapi-to-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/agenetix/mcpstack-openapi-to-mcp/issues"
+    "url": "https://github.com/agenetix/openapi-to-mcp/issues"
   },
   "homepage": "https://mcpstack.com",
   "engines": {
