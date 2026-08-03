@@ -1,5 +1,5 @@
 import type {
-  AgenetixGatewayIntegrationConfig,
+  McpStackGatewayIntegrationConfig,
   GatewayOauthConfig,
   GeneratorOptions,
   PromptDefinition,
@@ -9,13 +9,13 @@ import type {
 } from "./types.js";
 
 function isGatewayWorkerMode(mode: RuntimeMode): boolean {
-  return mode === "agenetix_gateway_worker";
+  return mode === "mcpstack_gateway_worker";
 }
 
 export interface GenerateCliValues {
   mode?: string;
-  "use-agenetix-gateway"?: boolean;
-  "agenetix-telemetry"?: boolean;
+  "use-mcpstack-gateway"?: boolean;
+  "mcpstack-telemetry"?: boolean;
   header?: string[];
   "prompts-json"?: string;
   "tool-instructions-json"?: string;
@@ -31,7 +31,7 @@ export interface ParsedGeneratorCliConfig {
   upstreamHeaders: UpstreamHeaderConfig[];
   prompts?: PromptDefinition[];
   toolInstructions?: Record<string, ToolInstructionConfig>;
-  gatewayIntegration?: AgenetixGatewayIntegrationConfig;
+  gatewayIntegration?: McpStackGatewayIntegrationConfig;
   gatewayOauthConfig?: GatewayOauthConfig;
 }
 
@@ -42,12 +42,12 @@ export function parseGeneratorCliConfig(
     runtimeMode: resolveRuntimeMode(
       values.mode,
       values.header,
-      values["use-agenetix-gateway"] === true
+      values["use-mcpstack-gateway"] === true
     ),
     upstreamHeaders: parseUpstreamHeaders(values.header),
     prompts: parsePrompts(values["prompts-json"]),
     toolInstructions: parseToolInstructions(values["tool-instructions-json"]),
-    gatewayIntegration: parseAgenetixGatewayIntegration(values),
+    gatewayIntegration: parseMcpStackGatewayIntegration(values),
     gatewayOauthConfig: parseGatewayOauthConfig(values),
   };
 }
@@ -134,10 +134,10 @@ export function parseGatewayOauthConfig(
   };
 }
 
-export function parseAgenetixGatewayIntegration(
+export function parseMcpStackGatewayIntegration(
   values: GenerateCliValues
-): AgenetixGatewayIntegrationConfig | undefined {
-  const usesGateway = values["use-agenetix-gateway"] === true;
+): McpStackGatewayIntegrationConfig | undefined {
+  const usesGateway = values["use-mcpstack-gateway"] === true;
   const oauth = parseGatewayOauthConfig(values);
   const explicitMode = normalizeRuntimeMode(values.mode);
   const modeUsesGateway = explicitMode ? isGatewayWorkerMode(explicitMode) : false;
@@ -147,7 +147,7 @@ export function parseAgenetixGatewayIntegration(
   }
 
   return {
-    provider: "agenetix",
+    provider: "mcpstack",
     ...(oauth ? { oauth } : {}),
   };
 }
@@ -155,10 +155,10 @@ export function parseAgenetixGatewayIntegration(
 export function resolveRuntimeMode(
   mode: string | undefined,
   headerArgs: string[] | undefined,
-  useAgenetixGateway = false
+  useMcpStackGateway = false
 ): RuntimeMode {
-  if (useAgenetixGateway) {
-    return "agenetix_gateway_worker";
+  if (useMcpStackGateway) {
+    return "mcpstack_gateway_worker";
   }
 
   const normalizedMode = normalizeRuntimeMode(mode);
@@ -196,14 +196,14 @@ export function normalizeRuntimeMode(
   }
 
   if (
-    normalized === "agenetix-gateway-worker" ||
-    normalized === "agenetix_gateway_worker"
+    normalized === "mcpstack-gateway-worker" ||
+    normalized === "mcpstack_gateway_worker"
   ) {
-    return "agenetix_gateway_worker";
+    return "mcpstack_gateway_worker";
   }
 
   throw new Error(
-    `Unsupported --mode "${mode}". Supported modes: standalone-no-auth, standalone-headers. For Agenetix Gateway-backed runtimes, use --use-agenetix-gateway.`
+    `Unsupported --mode "${mode}". Supported modes: standalone-no-auth, standalone-headers. For MCP Stack Gateway-backed runtimes, use --use-mcpstack-gateway.`
   );
 }
 

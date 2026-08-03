@@ -3,9 +3,9 @@
 Convert OpenAPI specifications into MCP servers.
 
 Use this package when you want a quick way to turn an OpenAPI spec into a TypeScript MCP server.
-If you want Agenetix Gateway in front of that server, add `--use-agenetix-gateway`.
+If you want MCP Stack Gateway in front of that server, add `--use-mcpstack-gateway`.
 
-[![npm version](https://badge.fury.io/js/%40agenetix%2Fopenapi-to-mcp.svg)](https://www.npmjs.com/package/@agenetix/openapi-to-mcp)
+[![npm version](https://badge.fury.io/js/%40emcy%2Fopenapi-to-mcp.svg)](https://www.npmjs.com/package/@agenetix/openapi-to-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## What it generates
@@ -24,13 +24,13 @@ Most users only need two shapes:
    - Injects static/custom headers into every upstream API request
    - Good for API keys, static bearer tokens, tenant headers, and similar patterns
 
-If you want Agenetix Gateway in front of the generated server, opt into the Gateway integration:
+If you want MCP Stack Gateway in front of the generated server, opt into the Gateway integration:
 
 - the generated server stays a TypeScript MCP server
-- Agenetix Gateway owns the public MCP and OAuth edge
-- Agenetix Host can run the server for you if you want managed hosting
+- MCP Stack Gateway owns the public MCP and OAuth edge
+- MCP Stack Host can run the server for you if you want managed hosting
 
-FastMCP and other MCP runtimes can use Agenetix Gateway too. This package is only for OpenAPI generation.
+FastMCP and other MCP runtimes can use MCP Stack Gateway too. This package is only for OpenAPI generation.
 
 The generator no longer produces standalone public OAuth resource servers and no longer supports bearer-token passthrough.
 
@@ -49,11 +49,11 @@ npx @agenetix/openapi-to-mcp generate \
   --mode standalone-headers \
   --header X-API-Key=UPSTREAM_API_KEY
 
-# Generate a server and configure it for Agenetix Gateway on an OAuth-protected app
+# Generate a server and configure it for MCP Stack Gateway on an OAuth-protected app
 npx @agenetix/openapi-to-mcp generate \
   --url ./openapi.yaml \
   --name my-app \
-  --use-agenetix-gateway \
+  --use-mcpstack-gateway \
   --gateway-provider sqlos \
   --gateway-auth-server-url https://auth.example.com/sqlos/auth \
   --gateway-client-id todo-mcp-local \
@@ -84,16 +84,16 @@ npx @agenetix/openapi-to-mcp generate [options]
 | `--output` | `-o` | Output directory |
 | `--base-url` | `-b` | Override the upstream API base URL |
 | `--version` |  | Runtime version string |
-| `--agenetix-telemetry` | `-e` | Include `@agenetix/sdk` telemetry |
+| `--mcpstack-telemetry` | `-e` | Include `@agenetix/sdk` telemetry |
 | `--local-sdk` |  | Use a local `@agenetix/sdk` path |
 | `--prompts-json` |  | JSON array of MCP prompt definitions |
 | `--tool-instructions-json` |  | JSON object keyed by tool key for tool-specific AI guidance |
 | `--mode` |  | Low-level runtime mode. Most users should only pass `standalone-no-auth` or `standalone-headers` directly |
-| `--use-agenetix-gateway` |  | Generate a server preconfigured to use Agenetix Gateway as the public MCP/OAuth edge |
+| `--use-mcpstack-gateway` |  | Generate a server preconfigured to use MCP Stack Gateway as the public MCP/OAuth edge |
 | `--header` |  | Repeatable `Header-Name=ENV_VAR` mapping for upstream requests |
-| `--gateway-provider` |  | Agenetix Gateway OAuth provider recipe label |
+| `--gateway-provider` |  | MCP Stack Gateway OAuth provider recipe label |
 | `--gateway-auth-server-url` |  | Downstream authorization server issuer or metadata base URL |
-| `--gateway-client-id` |  | Downstream client ID Agenetix should use |
+| `--gateway-client-id` |  | Downstream client ID MCP Stack should use |
 | `--gateway-resource` |  | Downstream API resource / audience |
 | `--gateway-scopes` |  | Comma or space separated downstream scopes |
 | `--force` | `-f` | Overwrite the output directory |
@@ -146,14 +146,14 @@ Then set:
 UPSTREAM_AUTHORIZATION=Bearer eyJ...
 ```
 
-## Using Agenetix Gateway
+## Using MCP Stack Gateway
 
-Use this when the upstream API is protected by OAuth and you want Agenetix Gateway to own the public MCP URL, OAuth flow, and client-facing discovery.
+Use this when the upstream API is protected by OAuth and you want MCP Stack Gateway to own the public MCP URL, OAuth flow, and client-facing discovery.
 
 ```bash
 npx @agenetix/openapi-to-mcp generate \
   --url ./openapi.json \
-  --use-agenetix-gateway \
+  --use-mcpstack-gateway \
   --gateway-provider sqlos \
   --gateway-auth-server-url https://auth.example.com/sqlos/auth \
   --gateway-client-id todo-mcp-local \
@@ -171,12 +171,12 @@ This is the right mode for apps protected by systems like:
 
 Legacy compatibility:
 
-- older `--mode agenetix-gateway-worker` invocations still parse, but `--use-agenetix-gateway` is the supported interface
+- older `--mode mcpstack-gateway-worker` invocations still parse, but `--use-mcpstack-gateway` is the supported interface
 
 Typical usage:
 
 1. generate a normal MCP server
-2. add `--use-agenetix-gateway` when you want Agenetix Gateway to become the public edge for that server
+2. add `--use-mcpstack-gateway` when you want MCP Stack Gateway to become the public edge for that server
 
 ## Generated Server
 
@@ -223,7 +223,7 @@ const files = generateMcpServer(
     version: "1.0.0",
     baseUrl: "https://api.example.com",
     gatewayIntegration: {
-      provider: "agenetix",
+      provider: "mcpstack",
       oauth: {
         provider: "sqlos",
         authorizationServerUrl: "https://auth.example.com/sqlos/auth",
@@ -241,20 +241,20 @@ const files = generateMcpServer(
 
 - It does not host a public OAuth authorization server for MCP clients.
 - It does not support forwarding end-user bearer tokens from the MCP client to the upstream API.
-- It does not try to replace Agenetix Host or Agenetix Gateway for OAuth-protected apps.
+- It does not try to replace MCP Stack Host or MCP Stack Gateway for OAuth-protected apps.
 
-## Agenetix
+## MCP Stack
 
-Use Agenetix when you want to turn an OAuth-protected API into:
+Use MCP Stack when you want to turn an OAuth-protected API into:
 
-- a hosted runtime behind Agenetix Host
+- a hosted runtime behind MCP Stack Host
 - a gateway-managed public MCP/OAuth surface
 - an embedded agent
 - a workspace integration
 - an external client surface for tools like VS Code or Claude
 
-The open-source generator handles the runtime. Agenetix Host runs it. Agenetix Gateway handles the public auth and orchestration layer.
+The open-source generator handles the runtime. MCP Stack Host runs it. MCP Stack Gateway handles the public auth and orchestration layer.
 
 ## License
 
-MIT © [Agenetix](https://agenetix.com)
+MIT © [MCP Stack](https://mcpstack.com)
