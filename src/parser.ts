@@ -200,7 +200,7 @@ function extractSecurityScheme(scheme: OpenAPIV3.SecuritySchemeObject | OpenAPIV
  * Generate a consistent operationId from method and path.
  * 
  * IMPORTANT: This function is duplicated in:
- *   - mcpstack/src/MCP Stack.Web/app/[lng]/components/wizard/actions.ts
+ *   - agenetix/src/Agenetix.Web/app/[lng]/components/wizard/actions.ts
  * 
  * Both implementations MUST stay in sync! If you modify this function,
  * update the wizard's generateOperationId() function as well.

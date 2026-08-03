@@ -128,7 +128,7 @@ export interface PromptArgument {
 export type RuntimeMode =
   | "standalone_no_auth"
   | "standalone_headers"
-  | "mcpstack_gateway_worker";
+  | "agenetix_gateway_worker";
 
 export interface UpstreamHeaderConfig {
   /** Header name to send to the upstream API on every request. */
@@ -172,8 +172,8 @@ export type HostedWorkerConfig = GatewayWorkerConfig;
  */
 export type HostedOauthConfig = GatewayOauthConfig;
 
-export interface McpStackGatewayIntegrationConfig {
-  provider: "mcpstack";
+export interface AgenetixGatewayIntegrationConfig {
+  provider: "agenetix";
   oauth?: GatewayOauthConfig;
   worker?: GatewayWorkerConfig;
 }
@@ -183,22 +183,22 @@ export interface GeneratorOptions {
   version?: string;
   baseUrl: string;
   enabledEndpoints?: Set<string>;  // Optional: filter to only these canonical tool keys
-  mcpStackTelemetryEnabled?: boolean;
+  agenetixTelemetryEnabled?: boolean;
   /**
    * For local development: path to local @agenetix/sdk package.
    * When set, generated package.json will use "file:<path>" instead of npm version.
-   * Example: "../../packages/mcpstack-sdk" or "/absolute/path/to/mcpstack-sdk"
+   * Example: "../../packages/agenetix-sdk" or "/absolute/path/to/agenetix-sdk"
    */
-  localMcpStackSdkPath?: string;
+  localAgenetixSdkPath?: string;
   /**
    * Low-level runtime shape for the generated output.
    * Most callers should prefer `gatewayIntegration` when they want
-   * MCP Stack Gateway in front of the generated server, instead of depending on
-   * MCP Stack-specific runtime mode names directly.
+   * Agenetix Gateway in front of the generated server, instead of depending on
+   * Agenetix-specific runtime mode names directly.
    *
    * - standalone_no_auth: public MCP server with no upstream auth handling
    * - standalone_headers: public MCP server that injects static/custom headers for upstream calls
-   * - mcpstack_gateway_worker: internal runtime used when the generated server sits behind MCP Stack Gateway/Host
+   * - agenetix_gateway_worker: internal runtime used when the generated server sits behind Agenetix Gateway/Host
    */
   runtimeMode?: RuntimeMode;
   /**
@@ -208,24 +208,24 @@ export interface GeneratorOptions {
   upstreamHeaders?: UpstreamHeaderConfig[];
   /**
    * Optional integration contract for generating a runtime intended to sit
-   * behind MCP Stack Gateway. This is the preferred public API for Gateway-backed
+   * behind Agenetix Gateway. This is the preferred public API for Gateway-backed
    * generation.
    */
-  gatewayIntegration?: McpStackGatewayIntegrationConfig;
+  gatewayIntegration?: AgenetixGatewayIntegrationConfig;
   /**
    * @deprecated Prefer `gatewayIntegration.worker`.
-   * Back-compat config for generated servers that use MCP Stack Host/Gateway.
+   * Back-compat config for generated servers that use Agenetix Host/Gateway.
    */
   hostedWorkerConfig?: HostedWorkerConfig;
   /**
    * Tool-specific guidance keyed by canonical tool key.
-   * MCP Stack uses this as part of the canonical generation config shared by the
+   * Agenetix uses this as part of the canonical generation config shared by the
    * wizard, CLI reproduction, and server regeneration.
    */
   toolInstructions?: Record<string, ToolInstructionConfig>;
   /**
    * @deprecated Prefer `gatewayIntegration.oauth`.
-   * Downstream OAuth metadata for generated servers that will use MCP Stack Gateway.
+   * Downstream OAuth metadata for generated servers that will use Agenetix Gateway.
    */
   hostedOauthConfig?: HostedOauthConfig;
   /**
