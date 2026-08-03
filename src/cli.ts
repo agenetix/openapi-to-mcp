@@ -2,11 +2,11 @@
 /**
  * @agenetix/openapi-to-mcp CLI
  * 
- * Convert OpenAPI specifications to MCP servers with optional Agenetix telemetry.
+ * Convert OpenAPI specifications to MCP servers with optional MCP Stack telemetry.
  * 
  * Usage:
  *   npx @agenetix/openapi-to-mcp generate --url https://api.example.com/openapi.json
- *   npx @agenetix/openapi-to-mcp generate --url ./openapi.yaml --name my-api --agenetix-telemetry
+ *   npx @agenetix/openapi-to-mcp generate --url ./openapi.yaml --name my-api --mcpstack-telemetry
  */
 
 import { parseArgs } from 'node:util';
@@ -39,7 +39,7 @@ GENERATE OPTIONS:
   --url, -u       URL or file path to OpenAPI specification (required)
   --name, -n      Name for the generated MCP server (default: from spec title)
   --output, -o    Output directory (default: ./<name>-mcp-server)
-  --agenetix-telemetry, -e      Enable Agenetix telemetry integration
+  --mcpstack-telemetry, -e      Enable MCP Stack telemetry integration
   --base-url, -b  Override base URL for API calls
   --version       Version string for the server (default: from spec)
   --force, -f     Overwrite existing output directory
@@ -48,22 +48,22 @@ GENERATE OPTIONS:
   --tool-instructions-json  JSON object keyed by tool key for tool-specific guidance
   --mode          Low-level runtime mode:
                   standalone-no-auth | standalone-headers
-                  Use --use-agenetix-gateway when you want Agenetix Gateway to be the public edge.
-  --use-agenetix-gateway
-                  Generate a server preconfigured to use Agenetix Gateway as the public MCP/OAuth edge
+                  Use --use-mcpstack-gateway when you want MCP Stack Gateway to be the public edge.
+  --use-mcpstack-gateway
+                  Generate a server preconfigured to use MCP Stack Gateway as the public MCP/OAuth edge
   --header        Upstream header mapping in the form Header-Name=ENV_VAR
                   Repeatable. Applies to standalone-headers and Gateway-enabled generated servers.
-  --gateway-provider        Agenetix Gateway OAuth provider recipe label
+  --gateway-provider        MCP Stack Gateway OAuth provider recipe label
   --gateway-auth-server-url Downstream OAuth issuer or metadata base URL
-  --gateway-client-id       Downstream client ID Agenetix should use
+  --gateway-client-id       Downstream client ID MCP Stack should use
   --gateway-resource        Downstream API resource / audience
   --gateway-scopes          Comma or space separated downstream scopes
 EXAMPLES:
   # Generate from a URL
   npx @agenetix/openapi-to-mcp generate --url https://petstore.swagger.io/v2/swagger.json
 
-  # Generate from a local file with Agenetix telemetry
-  npx @agenetix/openapi-to-mcp generate --url ./openapi.yaml --name my-api --agenetix-telemetry
+  # Generate from a local file with MCP Stack telemetry
+  npx @agenetix/openapi-to-mcp generate --url ./openapi.yaml --name my-api --mcpstack-telemetry
 
   # Generate with custom output directory
   npx @agenetix/openapi-to-mcp generate --url ./api.json -o ./my-mcp-server
@@ -71,8 +71,8 @@ EXAMPLES:
   # Generate a standalone MCP server that injects API key headers upstream
   npx @agenetix/openapi-to-mcp generate --url ./api.json --mode standalone-headers --header X-API-Key=UPSTREAM_API_KEY
 
-  # Generate a server that will use Agenetix Gateway as the public edge
-  npx @agenetix/openapi-to-mcp generate --url ./api.json --use-agenetix-gateway \\
+  # Generate a server that will use MCP Stack Gateway as the public edge
+  npx @agenetix/openapi-to-mcp generate --url ./api.json --use-mcpstack-gateway \\
     --gateway-provider sqlos \\
     --gateway-auth-server-url https://auth.example.com/sqlos/auth \\
     --gateway-client-id todo-mcp-local \\
@@ -151,7 +151,7 @@ async function runGenerate(args: string[]) {
       url: { type: 'string', short: 'u' },
       name: { type: 'string', short: 'n' },
       output: { type: 'string', short: 'o' },
-      'agenetix-telemetry': { type: 'boolean', short: 'e', default: false },
+      'mcpstack-telemetry': { type: 'boolean', short: 'e', default: false },
       'base-url': { type: 'string', short: 'b' },
       version: { type: 'string' },
       force: { type: 'boolean', short: 'f', default: false },
@@ -159,7 +159,7 @@ async function runGenerate(args: string[]) {
       'prompts-json': { type: 'string' },  // JSON array of prompt definitions
       'tool-instructions-json': { type: 'string' },
       mode: { type: 'string' },
-      'use-agenetix-gateway': { type: 'boolean', default: false },
+      'use-mcpstack-gateway': { type: 'boolean', default: false },
       header: { type: 'string', multiple: true },
       'gateway-provider': { type: 'string' },
       'gateway-auth-server-url': { type: 'string' },
@@ -215,18 +215,18 @@ async function runGenerate(args: string[]) {
 
     console.log(`\nGenerating MCP server: ${serverName}`);
     console.log(`  Output: ${resolvedOutput}`);
-    const telemetryEnabled = values['agenetix-telemetry'] === true;
-    console.log(`  Agenetix Telemetry: ${telemetryEnabled ? 'enabled' : 'disabled'}`);
+    const telemetryEnabled = values['mcpstack-telemetry'] === true;
+    console.log(`  MCP Stack Telemetry: ${telemetryEnabled ? 'enabled' : 'disabled'}`);
     console.log(
       `  Runtime Shape: ${
         parsedConfig.gatewayIntegration
-          ? "server configured to use Agenetix Gateway as the public edge"
+          ? "server configured to use MCP Stack Gateway as the public edge"
           : parsedConfig.runtimeMode === "standalone_headers"
             ? "standalone server with injected upstream headers"
             : "standalone public server"
       }`
     );
-    console.log(`  Agenetix Gateway: ${parsedConfig.gatewayIntegration ? 'enabled' : 'disabled'}`);
+    console.log(`  MCP Stack Gateway: ${parsedConfig.gatewayIntegration ? 'enabled' : 'disabled'}`);
     if (values['local-sdk']) {
       console.log(`  Local SDK: ${values['local-sdk']}`);
     }
@@ -253,8 +253,8 @@ async function runGenerate(args: string[]) {
           name: serverName,
           version: values.version || parsed.version || '1.0.0',
           baseUrl: values['base-url'] || parsed.baseUrl || 'http://localhost:3000',
-          agenetixTelemetryEnabled: telemetryEnabled,
-          localAgenetixSdkPath: values['local-sdk'],
+          mcpStackTelemetryEnabled: telemetryEnabled,
+          localMcpStackSdkPath: values['local-sdk'],
         },
         parsedConfig
       ),
@@ -286,9 +286,9 @@ async function runGenerate(args: string[]) {
     console.log(`  npm start             # For Claude Desktop/stdio transport`);
 
     if (telemetryEnabled) {
-      console.log(`\nAgenetix Telemetry:`);
-      console.log(`  Set AGENETIX_API_KEY in .env to enable telemetry.`);
-      console.log(`  Get your API key at https://agenetix.com/dashboard`);
+      console.log(`\nMCP Stack Telemetry:`);
+      console.log(`  Set MCPSTACK_API_KEY in .env to enable telemetry.`);
+      console.log(`  Get your API key at https://mcpstack.com/dashboard`);
     }
 
     console.log('');

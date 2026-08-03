@@ -1,11 +1,11 @@
 {
   "name": "@agenetix/openapi-to-mcp",
-  "version": "1.0.2",
+  "version": "2.0.2",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "description": "Convert OpenAPI specifications to MCP (Model Context Protocol) servers with optional Agenetix telemetry",
+  "description": "Convert OpenAPI specifications to MCP (Model Context Protocol) servers with optional MCP Stack telemetry",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -42,11 +42,11 @@
     "cursor",
     "llm",
     "tools",
-    "agenetix",
+    "mcpstack",
     "generator",
-    "agenetix"
+    "mcpstack"
   ],
-  "author": "Agenetix <hello@agenetix.com>",
+  "author": "MCP Stack <hello@mcpstack.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -55,7 +55,7 @@
   "bugs": {
     "url": "https://github.com/agenetix/openapi-to-mcp/issues"
   },
-  "homepage": "https://agenetix.com",
+  "homepage": "https://mcpstack.com",
   "engines": {
     "node": ">=20.0.0"
   },

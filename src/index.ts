@@ -1,7 +1,7 @@
 /**
- * Agenetix OpenAPI to MCP Generator
+ * MCP Stack OpenAPI to MCP Generator
  * 
- * Converts OpenAPI specifications to MCP servers with optional Agenetix telemetry.
+ * Converts OpenAPI specifications to MCP servers with optional MCP Stack telemetry.
  */
 
 export { parseOpenAPI, validateOpenAPI, generateOperationId } from './parser.js';
@@ -29,7 +29,7 @@ export type {
   PromptArgument,
   RuntimeMode,
   UpstreamHeaderConfig,
-  AgenetixGatewayIntegrationConfig,
+  McpStackGatewayIntegrationConfig,
   HostedWorkerConfig,
   ToolInstructionConfig,
   HostedOauthConfig,
