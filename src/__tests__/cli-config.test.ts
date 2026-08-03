@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeRuntimeMode,
-  parseMcpStackGatewayIntegration,
+  parseAgenetixGatewayIntegration,
   parseGatewayOauthConfig,
   parseGeneratorCliConfig,
   parseToolInstructions,
@@ -11,7 +11,7 @@ describe("cli-config", () => {
   it("normalizes supported runtime modes", () => {
     expect(normalizeRuntimeMode("standalone-no-auth")).toBe("standalone_no_auth");
     expect(normalizeRuntimeMode("standalone_headers")).toBe("standalone_headers");
-    expect(normalizeRuntimeMode("mcpstack-gateway-worker")).toBe("mcpstack_gateway_worker");
+    expect(normalizeRuntimeMode("agenetix-gateway-worker")).toBe("agenetix_gateway_worker");
   });
 
   it("parses gateway oauth config from explicit flags", () => {
@@ -50,7 +50,7 @@ describe("cli-config", () => {
 
   it("builds generator CLI config for gateway workers", () => {
     const parsed = parseGeneratorCliConfig({
-      "use-mcpstack-gateway": true,
+      "use-agenetix-gateway": true,
       "prompts-json": JSON.stringify([
         {
           name: "todo-summary",
@@ -70,7 +70,7 @@ describe("cli-config", () => {
       "gateway-scopes": "openid profile todos.read todos.write",
     });
 
-    expect(parsed.runtimeMode).toBe("mcpstack_gateway_worker");
+    expect(parsed.runtimeMode).toBe("agenetix_gateway_worker");
     expect(parsed.prompts).toHaveLength(1);
     expect(parsed.toolInstructions).toEqual({
       get_api_todos: {
@@ -85,7 +85,7 @@ describe("cli-config", () => {
       scopes: ["openid", "profile", "todos.read", "todos.write"],
     });
     expect(parsed.gatewayIntegration).toEqual({
-      provider: "mcpstack",
+      provider: "agenetix",
       oauth: {
         provider: "sqlos",
         authorizationServerUrl: "https://auth.example.com/sqlos/auth",
@@ -96,14 +96,14 @@ describe("cli-config", () => {
     });
   });
 
-  it("parses mcpstack gateway integration from legacy runtime mode", () => {
-    const integration = parseMcpStackGatewayIntegration({
-      mode: "mcpstack-gateway-worker",
+  it("parses agenetix gateway integration from legacy runtime mode", () => {
+    const integration = parseAgenetixGatewayIntegration({
+      mode: "agenetix-gateway-worker",
       "gateway-auth-server-url": "https://auth.example.com",
     });
 
     expect(integration).toEqual({
-      provider: "mcpstack",
+      provider: "agenetix",
       oauth: {
         authorizationServerUrl: "https://auth.example.com",
       },
