@@ -147,6 +147,47 @@ describe('parseOpenAPI', () => {
     });
   });
 
+  it('should let operation parameters override matching path parameters', async () => {
+    const spec = {
+      openapi: '3.0.0',
+      info: { title: 'Test API', version: '1.0.0' },
+      paths: {
+        '/users': {
+          parameters: [
+            {
+              name: 'locale',
+              in: 'query',
+              schema: { type: 'string', default: 'en' },
+              description: 'Default locale',
+            },
+          ],
+          get: {
+            parameters: [
+              {
+                name: 'locale',
+                in: 'query',
+                schema: { type: 'string', enum: ['en', 'tr'] },
+                description: 'Supported locale',
+              },
+            ],
+          },
+        },
+      },
+    };
+
+    const result = await parseOpenAPI(spec);
+
+    expect(result.endpoints[0].parameters).toEqual([
+      {
+        name: 'locale',
+        in: 'query',
+        required: false,
+        schema: { type: 'string', enum: ['en', 'tr'] },
+        description: 'Supported locale',
+      },
+    ]);
+  });
+
   it('should parse query parameters', async () => {
     const spec = {
       openapi: '3.0.0',
